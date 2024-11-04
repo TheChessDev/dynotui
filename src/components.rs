@@ -1,6 +1,7 @@
 use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect};
 
 pub mod collections_box;
+pub mod region_box;
 
 pub trait Component {
     /// Render the component

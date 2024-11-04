@@ -10,22 +10,22 @@ use ratatui::{
 
 use super::Component;
 
-pub struct CollectionsBox {
+pub struct AWSRegionBox {
     pub selected: bool,
 }
 
-impl CollectionsBox {
+impl AWSRegionBox {
     pub fn new() -> Self {
         Self { selected: false }
     }
 }
 
-impl Component for CollectionsBox {
+impl Component for AWSRegionBox {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let mut block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("Collections");
+            .title("AWS Region");
 
         if self.selected {
             block = block.border_style(Style::default().fg(Color::Green));
@@ -36,7 +36,7 @@ impl Component for CollectionsBox {
 
     fn handle_event(&mut self, event: KeyEvent) {
         match event.code {
-            KeyCode::Char('c') => self.selected = true,
+            KeyCode::Char('r') => self.selected = true,
             KeyCode::Esc => {
                 if self.selected {
                     self.reset();

@@ -9,12 +9,13 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::components::{collections_box::CollectionsBox, Component};
+use crate::components::{collections_box::CollectionsBox, region_box::AWSRegionBox, Component};
 
 pub struct App {
     mode: Mode,
     exit: bool,
     collections_box: CollectionsBox,
+    aws_region_box: AWSRegionBox,
 }
 
 #[derive(Default)]
@@ -32,6 +33,7 @@ impl App {
             exit: false,
             mode: Mode::Home,
             collections_box: CollectionsBox::new(),
+            aws_region_box: AWSRegionBox::new(),
         })
     }
 
@@ -51,6 +53,7 @@ impl App {
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.collections_box.handle_event(key_event);
+                self.aws_region_box.handle_event(key_event);
                 self.handle_key_event(key_event)
             }
             _ => {}
@@ -65,6 +68,7 @@ impl App {
             KeyCode::Char('f') => self.mode = Mode::FilteringCollections,
             KeyCode::Char('d') => self.mode = Mode::SelectingDataItem,
             KeyCode::Char('c') => self.mode = Mode::SelectingCollection,
+            KeyCode::Esc => self.mode = Mode::Home,
             _ => {}
         }
     }
@@ -90,15 +94,6 @@ impl Widget for &App {
             ])
             .split(layout[0]);
 
-        let aws_region_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title("AWS Region");
-
-        Paragraph::new("")
-            .block(aws_region_block)
-            .render(left_col_layout[0], buf);
-
         let mut filter_collections_block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -111,6 +106,7 @@ impl Widget for &App {
         }
 
         self.collections_box.render(left_col_layout[1], buf);
+        self.aws_region_box.render(left_col_layout[0], buf);
 
         Paragraph::new("")
             .block(filter_collections_block)
