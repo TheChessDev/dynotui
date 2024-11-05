@@ -32,14 +32,15 @@ pub enum Mode {
 
 impl App {
     pub fn new() -> io::Result<Self> {
+        let region = "us-east-1";
         let mut collections_box = CollectionsBox::new();
-        collections_box.load_collections("us-east-1");
+        collections_box.load_collections(region);
 
         Ok(Self {
             exit: false,
             mode: Mode::Home,
             collections_box,
-            aws_region_box: AWSRegionBox::new(),
+            aws_region_box: AWSRegionBox::new(region),
             data_box: DataBox::new(),
         })
     }
@@ -95,7 +96,7 @@ impl Widget for &mut App {
 
         let left_col_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(5), Constraint::Min(0)])
+            .constraints(vec![Constraint::Length(3), Constraint::Min(0)])
             .split(layout[0]);
 
         self.collections_box.render(left_col_layout[1], buf);

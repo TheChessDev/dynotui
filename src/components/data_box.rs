@@ -4,11 +4,11 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::KeyEvent,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use super::Component;
+use super::{Component, SELECTED_COLOR};
 
 pub struct DataBox {
     pub selected: bool,
@@ -28,7 +28,7 @@ impl Component for DataBox {
             .title("Data");
 
         if self.selected {
-            block = block.border_style(Style::default().fg(Color::Green));
+            block = block.border_style(Style::default().fg(SELECTED_COLOR));
         }
 
         Paragraph::new("").block(block).render(area, buf);

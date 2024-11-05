@@ -1,7 +1,13 @@
-use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect};
+use ratatui::{
+    buffer::Buffer,
+    crossterm::event::KeyEvent,
+    layout::Rect,
+    style::{palette::tailwind::EMERALD, Color},
+};
 
 pub mod collections_box;
 pub mod data_box;
+pub mod filter_input;
 pub mod region_box;
 
 pub trait Component {
@@ -25,3 +31,5 @@ pub trait MutableComponent {
     /// Reset the component to its initial state (optional)
     fn reset(&mut self);
 }
+
+pub const SELECTED_COLOR: Color = EMERALD.c300;

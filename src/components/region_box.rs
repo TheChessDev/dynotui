@@ -1,22 +1,27 @@
 use ratatui::crossterm::event::KeyCode;
+use ratatui::layout::Alignment;
 use ratatui::prelude::Widget;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::KeyEvent,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use super::Component;
+use super::{Component, SELECTED_COLOR};
 
 pub struct AWSRegionBox {
     pub selected: bool,
+    pub region: String,
 }
 
 impl AWSRegionBox {
-    pub fn new() -> Self {
-        Self { selected: false }
+    pub fn new(region: &str) -> Self {
+        Self {
+            selected: false,
+            region: region.to_string(),
+        }
     }
 }
 
@@ -28,10 +33,13 @@ impl Component for AWSRegionBox {
             .title("AWS Region");
 
         if self.selected {
-            block = block.border_style(Style::default().fg(Color::Green));
+            block = block.border_style(Style::default().fg(SELECTED_COLOR));
         }
 
-        Paragraph::new("").block(block).render(area, buf);
+        Paragraph::new(self.region.clone())
+            .alignment(Alignment::Center)
+            .block(block)
+            .render(area, buf);
     }
 
     fn handle_event(&mut self, event: KeyEvent) {
