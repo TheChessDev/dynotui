@@ -4,18 +4,21 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    widgets::{Block, BorderType, Borders, Paragraph, Widget},
+    widgets::Widget,
     DefaultTerminal, Frame,
 };
 
-use crate::components::{collections_box::CollectionsBox, region_box::AWSRegionBox, Component};
+use crate::components::{
+    collections_box::CollectionsBox, data_box::DataBox, region_box::AWSRegionBox, Component,
+    MutableComponent,
+};
 
 pub struct App {
     mode: Mode,
     exit: bool,
     collections_box: CollectionsBox,
     aws_region_box: AWSRegionBox,
+    data_box: DataBox,
 }
 
 #[derive(Default)]
@@ -29,11 +32,15 @@ pub enum Mode {
 
 impl App {
     pub fn new() -> io::Result<Self> {
+        let mut collections_box = CollectionsBox::new();
+        collections_box.load_collections("us-east-1");
+
         Ok(Self {
             exit: false,
             mode: Mode::Home,
-            collections_box: CollectionsBox::new(),
+            collections_box,
             aws_region_box: AWSRegionBox::new(),
+            data_box: DataBox::new(),
         })
     }
 
@@ -45,7 +52,7 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
@@ -54,6 +61,7 @@ impl App {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.collections_box.handle_event(key_event);
                 self.aws_region_box.handle_event(key_event);
+                self.data_box.handle_event(key_event);
                 self.handle_key_event(key_event)
             }
             _ => {}
@@ -78,7 +86,7 @@ impl App {
     }
 }
 
-impl Widget for &App {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -87,38 +95,12 @@ impl Widget for &App {
 
         let left_col_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(5),
-                Constraint::Percentage(85),
-                Constraint::Percentage(10),
-            ])
+            .constraints(vec![Constraint::Percentage(5), Constraint::Min(0)])
             .split(layout[0]);
 
-        let mut filter_collections_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title("Filter");
-
-        if let Mode::FilteringCollections = self.mode {
-            filter_collections_block = filter_collections_block
-                .clone()
-                .border_style(Style::default().fg(Color::Green));
-        }
-
         self.collections_box.render(left_col_layout[1], buf);
+
         self.aws_region_box.render(left_col_layout[0], buf);
-
-        Paragraph::new("")
-            .block(filter_collections_block)
-            .render(left_col_layout[2], buf);
-
-        Paragraph::new("")
-            .block(
-                Block::new()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .title("Data"),
-            )
-            .render(layout[1], buf);
+        self.data_box.render(layout[1], buf);
     }
 }
