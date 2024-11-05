@@ -4,6 +4,7 @@ use app::App;
 
 mod app;
 mod components;
+mod util;
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();

@@ -7,30 +7,36 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use super::{Component, SELECTED_COLOR};
+use crate::app::Message;
+
+use super::{MutableComponent, ACTIVE_PANE_COLOR};
 
 pub struct FilterInput {
     pub active: bool,
     pub input: String,
+    pub title: String,
 }
 
 impl FilterInput {
-    pub fn new() -> Self {
+    pub fn new(title: &str) -> Self {
         Self {
             active: false,
             input: String::new(),
+            title: title.to_string(),
         }
     }
 }
 
-impl Component for FilterInput {
-    fn render(&self, area: Rect, buf: &mut Buffer) {
+impl MutableComponent for FilterInput {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, active: bool) {
+        self.active = active;
+
         let block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("Filter Collections")
+            .title(self.title.clone())
             .border_style(if self.active {
-                Style::default().fg(SELECTED_COLOR)
+                Style::default().fg(ACTIVE_PANE_COLOR)
             } else {
                 Style::default().fg(Color::Gray)
             });
@@ -39,18 +45,23 @@ impl Component for FilterInput {
         paragraph.render(area, buf);
     }
 
-    fn handle_event(&mut self, event: KeyEvent) {
-        if self.active {
-            match event.code {
-                KeyCode::Backspace => {
-                    self.input.pop();
-                }
-                KeyCode::Char(c) => {
-                    self.input.push(c);
-                }
-                KeyCode::Enter | KeyCode::Esc => self.active = false,
-                _ => {}
+    fn handle_event<F>(&mut self, event: KeyEvent, send_message: F)
+    where
+        F: FnOnce(Message),
+    {
+        match event.code {
+            KeyCode::Backspace => {
+                self.input.pop();
             }
+            KeyCode::Char(c) => {
+                self.input.push(c);
+            }
+            KeyCode::Enter => send_message(Message::ApplyCollectionsFilter),
+            KeyCode::Esc => {
+                self.reset();
+                send_message(Message::CancelFilteringCollectionMode)
+            }
+            _ => {}
         }
     }
 

@@ -9,8 +9,7 @@ use ratatui::{
 };
 
 use crate::components::{
-    collections_box::CollectionsBox, data_box::DataBox, region_box::AWSRegionBox, Component,
-    MutableComponent,
+    collections_box::CollectionsBox, data_box::DataBox, region_box::AWSRegionBox, MutableComponent,
 };
 
 pub struct App {
@@ -24,10 +23,17 @@ pub struct App {
 #[derive(Default)]
 pub enum Mode {
     #[default]
-    Home,
     FilteringCollections,
     SelectingCollection,
     SelectingDataItem,
+    SelectingRegion,
+}
+
+pub enum Message {
+    ApplyCollectionsFilter,
+    CancelFilteringCollectionMode,
+    FilterFromSelectingCollectionMode,
+    SelectCollection(String),
 }
 
 impl App {
@@ -38,7 +44,7 @@ impl App {
 
         Ok(Self {
             exit: false,
-            mode: Mode::Home,
+            mode: Mode::SelectingCollection,
             collections_box,
             aws_region_box: AWSRegionBox::new(region),
             data_box: DataBox::new(),
@@ -58,32 +64,78 @@ impl App {
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
+        let event = event::read()?;
+        let mut messages = Vec::new();
+
+        match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.collections_box.handle_event(key_event);
-                self.aws_region_box.handle_event(key_event);
-                self.data_box.handle_event(key_event);
+                match self.mode {
+                    Mode::SelectingCollection => {
+                        self.collections_box
+                            .handle_event(key_event, |msg| messages.push(msg));
+                    }
+                    Mode::FilteringCollections => {
+                        self.collections_box
+                            .filter_input
+                            .handle_event(key_event, |msg| messages.push(msg));
+                        self.collections_box.apply_filter();
+                        self.collections_box.select_first();
+                    }
+                    Mode::SelectingDataItem => {
+                        self.data_box
+                            .handle_event(key_event, |msg| messages.push(msg));
+                    }
+                    Mode::SelectingRegion => {
+                        self.aws_region_box
+                            .handle_event(key_event, |msg| messages.push(msg));
+                    }
+                }
                 self.handle_key_event(key_event)
             }
             _ => {}
         };
 
+        for message in messages {
+            self.process_message(message);
+        }
+
         Ok(())
     }
 
     fn handle_key_event(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Char('f') => self.mode = Mode::FilteringCollections,
-            KeyCode::Char('d') => self.mode = Mode::SelectingDataItem,
-            KeyCode::Char('c') => self.mode = Mode::SelectingCollection,
-            KeyCode::Esc => self.mode = Mode::Home,
-            _ => {}
+        if !matches!(self.mode, Mode::FilteringCollections) {
+            match key_event.code {
+                KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+                KeyCode::Char('f') => {
+                    self.mode = Mode::FilteringCollections;
+                    self.data_box.reset();
+                    self.collections_box.filter_input.reset();
+                }
+                KeyCode::Char('i') => self.mode = Mode::SelectingDataItem,
+                KeyCode::Char('t') => self.mode = Mode::SelectingCollection,
+                KeyCode::Char('r') => self.mode = Mode::SelectingRegion,
+                _ => {}
+            }
         }
     }
 
     fn exit(&mut self) {
         self.exit = true;
+    }
+
+    pub fn process_message(&mut self, message: Message) {
+        match message {
+            Message::CancelFilteringCollectionMode => {
+                self.mode = Mode::SelectingCollection;
+                self.collections_box.apply_filter();
+            }
+            Message::ApplyCollectionsFilter => self.mode = Mode::SelectingCollection,
+            Message::FilterFromSelectingCollectionMode => self.mode = Mode::FilteringCollections,
+            Message::SelectCollection(collection) => {
+                self.data_box.set_title(&collection);
+                self.mode = Mode::SelectingDataItem;
+            }
+        }
     }
 }
 
@@ -96,12 +148,32 @@ impl Widget for &mut App {
 
         let left_col_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(3), Constraint::Min(0)])
+            .constraints(vec![
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(3),
+            ])
             .split(layout[0]);
 
-        self.collections_box.render(left_col_layout[1], buf);
+        self.collections_box.render(
+            left_col_layout[1],
+            buf,
+            matches!(self.mode, Mode::SelectingCollection),
+        );
 
-        self.aws_region_box.render(left_col_layout[0], buf);
-        self.data_box.render(layout[1], buf);
+        self.aws_region_box.render(
+            left_col_layout[0],
+            buf,
+            matches!(self.mode, Mode::SelectingRegion),
+        );
+
+        self.data_box
+            .render(layout[1], buf, matches!(self.mode, Mode::SelectingDataItem));
+
+        self.collections_box.filter_input.render(
+            left_col_layout[2],
+            buf,
+            matches!(self.mode, Mode::FilteringCollections),
+        )
     }
 }

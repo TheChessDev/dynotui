@@ -9,7 +9,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use super::{Component, SELECTED_COLOR};
+use crate::app::Message;
+
+use super::{MutableComponent, ACTIVE_PANE_COLOR};
 
 pub struct AWSRegionBox {
     pub selected: bool,
@@ -25,15 +27,16 @@ impl AWSRegionBox {
     }
 }
 
-impl Component for AWSRegionBox {
-    fn render(&self, area: Rect, buf: &mut Buffer) {
+impl MutableComponent for AWSRegionBox {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, active: bool) {
+        self.selected = active;
         let mut block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("AWS Region");
 
         if self.selected {
-            block = block.border_style(Style::default().fg(SELECTED_COLOR));
+            block = block.border_style(Style::default().fg(ACTIVE_PANE_COLOR));
         }
 
         Paragraph::new(self.region.clone())
@@ -42,7 +45,10 @@ impl Component for AWSRegionBox {
             .render(area, buf);
     }
 
-    fn handle_event(&mut self, event: KeyEvent) {
+    fn handle_event<F>(&mut self, event: KeyEvent, _send_message: F)
+    where
+        F: FnOnce(Message),
+    {
         match event.code {
             KeyCode::Char('r') => self.selected = true,
             KeyCode::Esc => {

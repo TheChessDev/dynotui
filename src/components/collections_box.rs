@@ -3,15 +3,14 @@ use std::sync::Arc;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client;
-use ratatui::crossterm::event::KeyCode;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::{Color, Modifier};
 use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, StatefulWidget};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::KeyEvent,
     layout::Rect,
-    style::{palette::tailwind::VIOLET, Style},
+    style::Style,
     widgets::{Block, BorderType, Borders},
 };
 
@@ -20,10 +19,14 @@ use fuzzy_matcher::FuzzyMatcher;
 
 use tokio::runtime::Runtime;
 
-use super::filter_input::FilterInput;
-use super::{Component, MutableComponent, SELECTED_COLOR};
+use crate::app::Message;
 
-const SELECTED_STYLE: Style = Style::new().bg(VIOLET.c600).add_modifier(Modifier::BOLD);
+use super::filter_input::FilterInput;
+use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};
+
+const SELECTED_STYLE: Style = Style::new()
+    .bg(ROW_HOVER_COLOR)
+    .add_modifier(Modifier::BOLD);
 
 pub struct CollectionsBox {
     pub selected: bool,
@@ -50,7 +53,7 @@ impl CollectionsBox {
             filtered_collections: Vec::new(),
             collections_list,
             selected_collection: String::new(),
-            filter_input: FilterInput::new(),
+            filter_input: FilterInput::new("Filter Tables"),
         }
     }
 
@@ -130,7 +133,7 @@ impl CollectionsBox {
         self.collections_list.state.select_previous();
     }
 
-    fn select_first(&mut self) {
+    pub fn select_first(&mut self) {
         self.collections_list.state.select_first();
     }
 
@@ -138,27 +141,32 @@ impl CollectionsBox {
         self.collections_list.state.select_last();
     }
 
+    fn scroll_up(&mut self) {
+        self.collections_list.state.scroll_up_by(5);
+    }
+
+    fn scroll_down(&mut self) {
+        self.collections_list.state.scroll_down_by(5);
+    }
+
     fn set_selected(&mut self) {
         if let Some(i) = self.collections_list.state.selected() {
-            self.selected_collection = i.to_string();
+            self.selected_collection = self.collections[i].to_string();
         }
     }
 }
 
 impl MutableComponent for CollectionsBox {
-    fn render(&mut self, area: Rect, buf: &mut Buffer) {
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Min(5), Constraint::Length(3)])
-            .split(area);
+    fn render(&mut self, area: Rect, buf: &mut Buffer, active: bool) {
+        self.selected = active;
 
         let mut block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("Collections");
+            .title("Tables");
 
         if self.selected {
-            block = block.border_style(Style::default().fg(SELECTED_COLOR));
+            block = block.border_style(Style::default().fg(ACTIVE_PANE_COLOR));
         }
 
         let items: Vec<ListItem> = self
@@ -173,50 +181,40 @@ impl MutableComponent for CollectionsBox {
             .highlight_style(SELECTED_STYLE)
             .highlight_spacing(HighlightSpacing::Always);
 
-        StatefulWidget::render(
-            collection_list,
-            layout[0],
-            buf,
-            &mut self.collections_list.state,
-        );
-
-        self.filter_input.render(layout[1], buf);
+        StatefulWidget::render(collection_list, area, buf, &mut self.collections_list.state);
     }
 
-    fn handle_event(&mut self, event: KeyEvent) {
-        if !self.selected {
-            match event.code {
-                KeyCode::Char('c') => self.selected = true,
-                _ => {}
+    fn handle_event<F>(&mut self, event: KeyEvent, send_message: F)
+    where
+        F: FnOnce(Message),
+    {
+        match event.code {
+            KeyCode::Char('f') => send_message(Message::FilterFromSelectingCollectionMode),
+            KeyCode::Char('h') | KeyCode::Left => self.select_none(),
+            KeyCode::Char('j') | KeyCode::Down => self.select_next(),
+            KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
+            KeyCode::Char('g') | KeyCode::Home => self.select_first(),
+            KeyCode::Char('G') | KeyCode::End => self.select_last(),
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
+                self.set_selected();
+                send_message(Message::SelectCollection(self.selected_collection.clone()))
             }
-        } else if self.filter_input.active {
-            self.filter_input.handle_event(event);
-            self.apply_filter();
-        } else {
-            match event.code {
-                KeyCode::Char('f') => {
-                    self.filter_input.active = true;
-                    self.filter_input.reset();
-                }
-                KeyCode::Char('c') => self.selected = true,
-                KeyCode::Char('h') | KeyCode::Left => self.select_none(),
-                KeyCode::Char('j') | KeyCode::Down => self.select_next(),
-                KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-                KeyCode::Char('g') | KeyCode::Home => self.select_first(),
-                KeyCode::Char('G') | KeyCode::End => self.select_last(),
-                KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
-                    self.set_selected();
-                }
-                KeyCode::Esc => {
-                    self.reset();
-                }
-                _ => {}
+            KeyCode::Esc => {
+                self.reset();
             }
+            _ => {}
+        }
+
+        if event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
+            self.scroll_down();
+        }
+
+        if event == KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL) {
+            self.scroll_up();
         }
     }
 
     fn reset(&mut self) {
         self.selected = false;
-        self.filter_input.active = false;
     }
 }
