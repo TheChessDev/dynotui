@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use aws_config::meta::region::RegionProviderChain;
-use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::{Color, Modifier};
@@ -16,8 +12,6 @@ use ratatui::{
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-
-use tokio::runtime::Runtime;
 
 use crate::app::Message;
 
@@ -75,19 +69,7 @@ impl CollectionsBox {
         }
     }
 
-    pub fn load_collections(&mut self, _region: &str) {
-        let rt = Runtime::new().unwrap();
-
-        let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-
-        let config = Arc::new(rt.block_on(async {
-            aws_config::defaults(BehaviorVersion::v2024_03_28())
-                .region(region_provider)
-                .load()
-                .await
-        }));
-
-        let client = Client::new(&config);
+    pub async fn load_collections(&mut self, client: &Client) {
         let mut last_evaluated_table_name = None;
         self.collections.clear();
 
@@ -96,7 +78,7 @@ impl CollectionsBox {
                 .list_tables()
                 .set_exclusive_start_table_name(last_evaluated_table_name.clone());
 
-            match rt.block_on(async { request.send().await }) {
+            match request.send().await {
                 Ok(output) => {
                     let table_names = output.table_names();
 
@@ -149,10 +131,21 @@ impl CollectionsBox {
         self.collections_list.state.scroll_down_by(5);
     }
 
-    fn set_selected(&mut self) {
-        if let Some(i) = self.collections_list.state.selected() {
-            self.selected_collection = self.collections[i].to_string();
+    fn set_selected(&mut self) -> bool {
+        if let None = self.collections_list.state.selected() {
+            return false;
         }
+
+        let col_indx = self.collections_list.state.selected().unwrap();
+        let new_col_name = self.filtered_collections[col_indx].to_string();
+
+        if new_col_name == self.selected_collection {
+            return false;
+        }
+
+        self.selected_collection = new_col_name;
+
+        return true;
     }
 }
 
@@ -189,15 +182,18 @@ impl MutableComponent for CollectionsBox {
         F: FnOnce(Message),
     {
         match event.code {
-            KeyCode::Char('f') => send_message(Message::FilterFromSelectingCollectionMode),
+            KeyCode::Char('/') => send_message(Message::FilterFromSelectingCollectionMode),
             KeyCode::Char('h') | KeyCode::Left => self.select_none(),
             KeyCode::Char('j') | KeyCode::Down => self.select_next(),
             KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
             KeyCode::Char('g') | KeyCode::Home => self.select_first(),
             KeyCode::Char('G') | KeyCode::End => self.select_last(),
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
-                self.set_selected();
-                send_message(Message::SelectCollection(self.selected_collection.clone()))
+                let new_selection = self.set_selected();
+
+                if new_selection {
+                    send_message(Message::SelectCollection(self.selected_collection.clone()))
+                }
             }
             KeyCode::Esc => {
                 self.reset();

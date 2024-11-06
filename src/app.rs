@@ -1,15 +1,22 @@
-use std::io;
+use std::time::{Duration, Instant};
 
+use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
+use aws_sdk_dynamodb::Client;
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    crossterm::{
+        self,
+        event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    },
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Widget,
     DefaultTerminal, Frame,
 };
+use tokio::time::sleep;
 
 use crate::components::{
-    collections_box::CollectionsBox, data_box::DataBox, region_box::AWSRegionBox, MutableComponent,
+    collections_box::CollectionsBox, data_box::DataBox, loading::LoadingBox,
+    region_box::AWSRegionBox, MutableComponent,
 };
 
 pub struct App {
@@ -18,6 +25,8 @@ pub struct App {
     collections_box: CollectionsBox,
     aws_region_box: AWSRegionBox,
     data_box: DataBox,
+    client: Client,
+    loading_box: LoadingBox,
 }
 
 #[derive(Default)]
@@ -34,13 +43,22 @@ pub enum Message {
     CancelFilteringCollectionMode,
     FilterFromSelectingCollectionMode,
     SelectCollection(String),
+    LoadMoreData,
 }
 
 impl App {
-    pub fn new() -> io::Result<Self> {
+    pub async fn new() -> anyhow::Result<Self> {
         let region = "us-east-1";
+        let region_provider = RegionProviderChain::default_provider().or_else(region);
+        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+            .region(region_provider)
+            .load()
+            .await;
+
+        let client = Client::new(&config);
+
         let mut collections_box = CollectionsBox::new();
-        collections_box.load_collections(region);
+        collections_box.load_collections(&client).await;
 
         Ok(Self {
             exit: false,
@@ -48,13 +66,28 @@ impl App {
             collections_box,
             aws_region_box: AWSRegionBox::new(region),
             data_box: DataBox::new(),
+            client,
+            loading_box: LoadingBox::new(),
         })
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+        let tick_rate = Duration::from_millis(50);
+        let mut last_tick = Instant::now();
+
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+
+            let timeout = tick_rate
+                .checked_sub(last_tick.elapsed())
+                .unwrap_or_else(|| Duration::from_secs(0));
+
+            self.handle_events(timeout).await?;
+
+            if self.loading_box.active && last_tick.elapsed() >= tick_rate {
+                self.on_tick();
+                last_tick = Instant::now();
+            }
         }
         Ok(())
     }
@@ -63,40 +96,42 @@ impl App {
         frame.render_widget(self, frame.area());
     }
 
-    fn handle_events(&mut self) -> io::Result<()> {
-        let event = event::read()?;
+    async fn handle_events(&mut self, timeout: Duration) -> anyhow::Result<()> {
         let mut messages = Vec::new();
 
-        match event {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match self.mode {
-                    Mode::SelectingCollection => {
-                        self.collections_box
-                            .handle_event(key_event, |msg| messages.push(msg));
+        if crossterm::event::poll(timeout)? {
+            let event = event::read()?;
+            match event {
+                Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                    match self.mode {
+                        Mode::SelectingCollection => {
+                            self.collections_box
+                                .handle_event(key_event, |msg| messages.push(msg));
+                        }
+                        Mode::FilteringCollections => {
+                            self.collections_box
+                                .filter_input
+                                .handle_event(key_event, |msg| messages.push(msg));
+                            self.collections_box.apply_filter();
+                            self.collections_box.select_first();
+                        }
+                        Mode::SelectingDataItem => {
+                            self.data_box
+                                .handle_event(key_event, |msg| messages.push(msg));
+                        }
+                        Mode::SelectingRegion => {
+                            self.aws_region_box
+                                .handle_event(key_event, |msg| messages.push(msg));
+                        }
                     }
-                    Mode::FilteringCollections => {
-                        self.collections_box
-                            .filter_input
-                            .handle_event(key_event, |msg| messages.push(msg));
-                        self.collections_box.apply_filter();
-                        self.collections_box.select_first();
-                    }
-                    Mode::SelectingDataItem => {
-                        self.data_box
-                            .handle_event(key_event, |msg| messages.push(msg));
-                    }
-                    Mode::SelectingRegion => {
-                        self.aws_region_box
-                            .handle_event(key_event, |msg| messages.push(msg));
-                    }
+                    self.handle_key_event(key_event)
                 }
-                self.handle_key_event(key_event)
-            }
-            _ => {}
-        };
+                _ => {}
+            };
+        }
 
         for message in messages {
-            self.process_message(message);
+            self.process_message(message).await
         }
 
         Ok(())
@@ -106,9 +141,8 @@ impl App {
         if !matches!(self.mode, Mode::FilteringCollections) {
             match key_event.code {
                 KeyCode::Char('q') | KeyCode::Esc => self.exit(),
-                KeyCode::Char('f') => {
+                KeyCode::Char('/') => {
                     self.mode = Mode::FilteringCollections;
-                    self.data_box.reset();
                     self.collections_box.filter_input.reset();
                 }
                 KeyCode::Char('i') => self.mode = Mode::SelectingDataItem,
@@ -123,7 +157,7 @@ impl App {
         self.exit = true;
     }
 
-    pub fn process_message(&mut self, message: Message) {
+    pub async fn process_message(&mut self, message: Message) {
         match message {
             Message::CancelFilteringCollectionMode => {
                 self.mode = Mode::SelectingCollection;
@@ -132,19 +166,50 @@ impl App {
             Message::ApplyCollectionsFilter => self.mode = Mode::SelectingCollection,
             Message::FilterFromSelectingCollectionMode => self.mode = Mode::FilteringCollections,
             Message::SelectCollection(collection) => {
+                self.loading_box.start_loading();
+                self.on_tick();
+                self.data_box.reset();
+
+                sleep(Duration::from_secs(6)).await;
+
+                if let Err(_error) = self.data_box.load_data(&self.client, &collection).await {
+                    self.mode = Mode::SelectingCollection;
+                    self.loading_box.end_loading();
+                    return;
+                }
+
                 self.data_box.set_title(&collection);
                 self.mode = Mode::SelectingDataItem;
+                self.loading_box.start_loading();
+            }
+            Message::LoadMoreData => {
+                if let Err(_error) = self
+                    .data_box
+                    .load_data(&self.client, &self.collections_box.selected_collection)
+                    .await
+                {
+                    self.mode = Mode::SelectingCollection;
+                }
             }
         }
+    }
+
+    fn on_tick(&mut self) {
+        self.loading_box.on_tick();
     }
 }
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Min(0), Constraint::Length(3)])
+            .split(area);
+
+        let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(30), Constraint::Percentage(70)])
-            .split(area);
+            .split(layout[0]);
 
         let left_col_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -153,7 +218,9 @@ impl Widget for &mut App {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(layout[0]);
+            .split(columns[0]);
+
+        self.loading_box.render(layout[1], buf, false);
 
         self.collections_box.render(
             left_col_layout[1],
@@ -167,8 +234,11 @@ impl Widget for &mut App {
             matches!(self.mode, Mode::SelectingRegion),
         );
 
-        self.data_box
-            .render(layout[1], buf, matches!(self.mode, Mode::SelectingDataItem));
+        self.data_box.render(
+            columns[1],
+            buf,
+            matches!(self.mode, Mode::SelectingDataItem),
+        );
 
         self.collections_box.filter_input.render(
             left_col_layout[2],

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::{Client, Error};
-use ratatui::crossterm::event::KeyCode;
-use ratatui::prelude::Widget;
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::Color;
 use ratatui::widgets::{List, ListItem, ListState, StatefulWidget};
 use ratatui::{
@@ -11,7 +10,7 @@ use ratatui::{
     crossterm::event::KeyEvent,
     layout::Rect,
     style::Style,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders},
 };
 use serde_json::{Map, Value};
 
@@ -23,11 +22,11 @@ use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};
 pub struct DataBox {
     pub selected: bool,
     pub title: String,
-    pub content: String,
     pub records: Vec<String>,
     pub has_more: bool,
     pub last_evaluated_key: Option<HashMap<String, AttributeValue>>,
     pub list_state: ListState,
+    pub selected_row: String,
 }
 
 impl DataBox {
@@ -35,20 +34,16 @@ impl DataBox {
         Self {
             selected: false,
             title: "Data".to_string(),
-            content: String::new(),
             records: Vec::new(),
-            has_more: false,
+            has_more: true,
             last_evaluated_key: None,
             list_state: ListState::default(),
+            selected_row: String::new(),
         }
     }
 
     pub fn set_title(&mut self, new_title: &str) {
         self.title = new_title.to_string();
-    }
-
-    pub fn set_content(&mut self, new_content: &str) {
-        self.content = new_content.to_string();
     }
 
     pub async fn load_data(&mut self, client: &Client, collection_name: &str) -> Result<(), Error> {
@@ -66,6 +61,7 @@ impl DataBox {
         }
 
         let response = request.send().await?;
+
         if let Some(items) = response.items {
             self.records.extend(items.into_iter().map(|item| {
                 let mut json_item = Map::new();
@@ -82,9 +78,44 @@ impl DataBox {
                 .map(|(k, v)| (k, v))
                 .collect::<HashMap<String, AttributeValue>>()
         });
+
         self.has_more = self.last_evaluated_key.is_some();
 
         Ok(())
+    }
+
+    fn select_none(&mut self) {
+        self.list_state.select(None);
+    }
+
+    fn select_next(&mut self) {
+        self.list_state.select_next();
+    }
+
+    fn select_previous(&mut self) {
+        self.list_state.select_previous();
+    }
+
+    pub fn select_first(&mut self) {
+        self.list_state.select_first();
+    }
+
+    fn select_last(&mut self) {
+        self.list_state.select_last();
+    }
+
+    fn scroll_up(&mut self) {
+        self.list_state.scroll_up_by(5);
+    }
+
+    fn scroll_down(&mut self) {
+        self.list_state.scroll_down_by(5);
+    }
+
+    fn set_selected(&mut self) {
+        if let Some(i) = self.list_state.selected() {
+            self.selected_row = self.records[i].to_string();
+        }
     }
 }
 
@@ -115,19 +146,55 @@ impl MutableComponent for DataBox {
         StatefulWidget::render(list, area, buf, &mut self.list_state);
     }
 
-    fn handle_event<F>(&mut self, event: KeyEvent, _send_message: F)
+    fn handle_event<F>(&mut self, event: KeyEvent, send_message: F)
     where
         F: FnOnce(Message),
     {
         match event.code {
+            KeyCode::Char('h') | KeyCode::Left => self.select_none(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.select_next();
+                if let Some(selected) = self.list_state.selected() {
+                    if selected >= self.records.len() - 5 && self.has_more {
+                        send_message(Message::LoadMoreData);
+                    }
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
+            KeyCode::Char('g') | KeyCode::Home => self.select_first(),
+            KeyCode::Char('G') | KeyCode::End => {
+                self.select_last();
+                if self.has_more {
+                    send_message(Message::LoadMoreData);
+                }
+            }
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
+                self.set_selected();
+            }
+
             KeyCode::Esc => {
                 self.reset();
             }
             _ => {}
         }
+
+        if event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
+            self.scroll_down();
+        }
+
+        if event == KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL) {
+            self.scroll_up();
+        }
     }
 
     fn reset(&mut self) {
+        self.records.clear();
+        self.has_more = true;
+        self.last_evaluated_key = None;
+        self.title = "Data".to_string();
+        self.selected_row = String::new();
+        self.list_state = ListState::default();
+
         self.selected = false;
     }
 }

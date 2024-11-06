@@ -1,15 +1,14 @@
-use std::io;
-
 use app::App;
 
 mod app;
 mod components;
 mod util;
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
     terminal.clear()?;
-    let app_result = App::new()?.run(&mut terminal);
+    let app_result = App::new().await?.run(&mut terminal).await;
 
     ratatui::restore();
 
