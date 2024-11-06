@@ -13,7 +13,7 @@ use ratatui::{
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-use crate::app::Message;
+use crate::message::Message;
 
 use super::filter_input::FilterInput;
 use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};

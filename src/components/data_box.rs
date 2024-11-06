@@ -14,7 +14,7 @@ use ratatui::{
 };
 use serde_json::{Map, Value};
 
-use crate::app::Message;
+use crate::message::Message;
 use crate::util::dynamodb_to_json;
 
 use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};

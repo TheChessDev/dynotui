@@ -14,9 +14,12 @@ use ratatui::{
 };
 use tokio::time::sleep;
 
-use crate::components::{
-    collections_box::CollectionsBox, data_box::DataBox, loading::LoadingBox,
-    region_box::AWSRegionBox, MutableComponent,
+use crate::{
+    components::{
+        collections_box::CollectionsBox, data_box::DataBox, loading::LoadingBox,
+        region_box::AWSRegionBox, MutableComponent,
+    },
+    message::Message,
 };
 
 pub struct App {
@@ -36,14 +39,6 @@ pub enum Mode {
     SelectingCollection,
     SelectingDataItem,
     SelectingRegion,
-}
-
-pub enum Message {
-    ApplyCollectionsFilter,
-    CancelFilteringCollectionMode,
-    FilterFromSelectingCollectionMode,
-    SelectCollection(String),
-    LoadMoreData,
 }
 
 impl App {
@@ -158,6 +153,16 @@ impl App {
     }
 
     pub async fn process_message(&mut self, message: Message) {
+        if message.should_trigger_loading() {
+            if let Some(msg) = message.loading_message() {
+                self.loading_box.set_message(msg);
+            }
+
+            self.loading_box.start_loading();
+
+            self.on_tick();
+        }
+
         match message {
             Message::CancelFilteringCollectionMode => {
                 self.mode = Mode::SelectingCollection;

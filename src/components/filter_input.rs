@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use crate::app::Message;
+use crate::message::Message;
 
 use super::{MutableComponent, ACTIVE_PANE_COLOR};
 

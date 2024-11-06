@@ -2,6 +2,7 @@ use app::App;
 
 mod app;
 mod components;
+mod message;
 mod util;
 
 #[tokio::main]

@@ -8,7 +8,7 @@ use ratatui::{
     },
 };
 
-use crate::app::Message;
+use crate::message::Message;
 
 pub mod collections_box;
 pub mod data_box;
