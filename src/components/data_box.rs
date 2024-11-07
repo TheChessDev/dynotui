@@ -26,6 +26,7 @@ pub struct DataBox {
     has_more: bool,
     list_state: ListState,
     selected_row: String,
+    collection_name: String,
 }
 
 impl DataBox {
@@ -35,10 +36,6 @@ impl DataBox {
 
     pub fn set_title(&mut self, new_title: &str) {
         self.title = new_title.to_string();
-    }
-
-    fn select_none(&mut self) {
-        self.list_state.select(None);
     }
 
     fn select_next(&mut self) {
@@ -70,16 +67,6 @@ impl DataBox {
             self.selected_row = self.records[i].to_string();
         }
     }
-
-    fn reset(&mut self) {
-        self.records.clear();
-        self.has_more = true;
-        self.title = "Data".to_string();
-        self.selected_row = String::new();
-        self.list_state = ListState::default();
-
-        self.active = false;
-    }
 }
 
 impl Component for DataBox {
@@ -105,10 +92,47 @@ impl Component for DataBox {
             Action::SelectingRegion | Action::FilteringTables | Action::SelectTableMode => {
                 self.active = false
             }
-            Action::TransmitSelectedTable(table) => self.set_title(&table),
+            Action::TransmitSelectedTable(table) => {
+                self.set_title(&table);
+                self.collection_name = table.clone();
+            }
             Action::TransmitTableData(data, has_more) => {
                 self.records = data;
                 self.has_more = has_more;
+            }
+            Action::SelectTableDataRowPrev => {
+                self.select_previous();
+            }
+            Action::SelectTableDataRowNext => {
+                self.select_next();
+            }
+            Action::SelectTableDataRowScrollUp => {
+                self.scroll_up();
+            }
+            Action::SelectTableDataRowScrollDown => {
+                self.scroll_down();
+            }
+            Action::SelectTableDataRowFirst => {
+                self.select_first();
+            }
+            Action::SelectTableDataRowLast => {
+                self.select_last();
+                if self.has_more {
+                    let command_ref = self.command_tx.as_ref().unwrap();
+                    command_ref
+                        .send(Action::StartLoading("Loading More Table Data".to_string()))?;
+                    command_ref.send(Action::FetchMoreTableData(self.collection_name.clone()))?;
+                }
+            }
+            Action::SelectTableDataRow => {
+                self.set_selected();
+            }
+            Action::TransmitNextBatcTableData(data, has_more) => {
+                self.has_more = has_more;
+                self.records.extend(data);
+            }
+            Action::FetchTableData(_) => {
+                self.records.clear();
             }
             _ => {}
         }

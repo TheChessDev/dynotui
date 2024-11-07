@@ -40,7 +40,8 @@ pub enum Mode {
     #[default]
     View,
     Insert,
-    SelectTableMode,
+    SelectTable,
+    SelectTableDataRow,
 }
 
 impl App {
@@ -98,15 +99,23 @@ impl App {
         loop {
             while let Ok(response) = self.fetch_rx.try_recv() {
                 match response {
-                    FetchResponse::TablesFetched(tables) => {
+                    FetchResponse::Tables(tables) => {
                         self.action_tx.send(Action::TransmitTables(tables))?;
                         self.action_tx.send(Action::Render)?;
                         self.action_tx.send(Action::StopLoading)?;
                     }
-                    FetchResponse::TableDataFetched(data, has_more, last_evaluated_key) => {
+                    FetchResponse::TableData(data, has_more, last_evaluated_key) => {
                         self.last_evaluated_key = last_evaluated_key;
                         self.action_tx
                             .send(Action::TransmitTableData(data, has_more))?;
+                        self.action_tx.send(Action::SelectDataMode)?;
+                        self.action_tx.send(Action::Render)?;
+                        self.action_tx.send(Action::StopLoading)?;
+                    }
+                    FetchResponse::NextBatchTableData(data, has_more, last_evaluated_key) => {
+                        self.last_evaluated_key = last_evaluated_key;
+                        self.action_tx
+                            .send(Action::TransmitNextBatcTableData(data, has_more))?;
                         self.action_tx.send(Action::Render)?;
                         self.action_tx.send(Action::StopLoading)?;
                     }
@@ -210,14 +219,19 @@ impl App {
                 Action::Render => self.render(tui)?,
                 Action::EnterInsertMode => self.mode = Mode::Insert,
                 Action::ExitInsertMode => self.mode = Mode::View,
-                Action::SelectTableMode => self.mode = Mode::SelectTableMode,
+                Action::SelectTableMode => self.mode = Mode::SelectTable,
+                Action::SelectDataMode => self.mode = Mode::SelectTableDataRow,
                 Action::FetchTables => {
                     self.action_tx
                         .send(Action::StartLoading("Fetching Tables".to_string()))?;
-                    self.fetch_tx.try_send(FetchRequest::FetchTables)?;
+                    self.fetch_tx.try_send(FetchRequest::Tables)?;
                 }
                 Action::FetchTableData(ref collection_name) => {
-                    self.fetch_tx.try_send(FetchRequest::FetchTableData(
+                    self.fetch_tx
+                        .try_send(FetchRequest::TableData(collection_name.to_string()))?;
+                }
+                Action::FetchMoreTableData(ref collection_name) => {
+                    self.fetch_tx.try_send(FetchRequest::NextBatchTableData(
                         collection_name.to_string(),
                         self.last_evaluated_key.clone(),
                     ))?;

@@ -1,29 +1,42 @@
 {
-  "keybindings": {
-    "View": {
-      "<q>": "Quit", // Quit the application
-      "<Ctrl-c>": "Quit", // Yet another way to quit
-      "<Ctrl-z>": "Suspend", // Suspend the application
-      "<t>": "SelectTableMode",
-      "</>": "FilteringTables",
-      "<i>": "SelectDataMode"
-    },
-    "Insert": {
-        "<esc>": "ExitInsertMode",
-        "<backspace>": "DeleteCharacter",
-        "<enter>": "SubmitText"
-    },
-    "SelectTableMode": {
-        "<q>": "Quit", // Quit the application
-        "<Ctrl-c>": "Quit", // Yet another way to quit
-        "<j>": "SelectTableNext",
-        "<k>": "SelectTablePrev",
-        "</>": "FilteringTables",
-        "<Ctrl-d>": "SelectTableScrollDown", // Another way to quit
-        "<Ctrl-u>": "SelectTableScrollUp", // Another way to quit
-        "<g>": "SelectTableFirst",
-        "<Shift-g>": "SelectTableLast",
-        "<l>": "SelectTable",
+    "keybindings": {
+        "View": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<Ctrl-z>": "Suspend", // Suspend the application
+            "<t>": "SelectTableMode",
+            "</>": "FilteringTables",
+            "<i>": "SelectDataMode"
+        },
+        "Insert": {
+            "<esc>": "ExitInsertMode",
+            "<backspace>": "DeleteCharacter",
+            "<enter>": "SubmitText"
+        },
+        "SelectTable": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<j>": "SelectTableNext",
+            "<k>": "SelectTablePrev",
+            "</>": "FilteringTables",
+            "<Ctrl-d>": "SelectTableScrollDown", // Another way to quit
+            "<Ctrl-u>": "SelectTableScrollUp", // Another way to quit
+            "<g>": "SelectTableFirst",
+            "<Shift-g>": "SelectTableLast",
+            "<l>": "SelectTable",
+        },
+        "SelectTableDataRow": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<t>": "SelectTableMode",
+            "</>": "FilteringTables",
+            "<j>": "SelectTableDataRowNext",
+            "<k>": "SelectTableDataRowPrev",
+            "<Ctrl-d>": "SelectTableDataRowScrollDown", // Another way to quit
+            "<Ctrl-u>": "SelectTableDataRowScrollUp", // Another way to quit
+            "<g>": "SelectTableDataRowFirst",
+            "<Shift-g>": "SelectTableDataRowLast",
+            "<l>": "SelectTableDataRow",
+        }
     }
-  }
 }

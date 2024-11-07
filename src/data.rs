@@ -8,14 +8,16 @@ use crate::util::dynamodb_to_json;
 
 #[derive(Debug)]
 pub enum FetchRequest {
-    FetchTables,
-    FetchTableData(String, Option<HashMap<String, AttributeValue>>),
+    Tables,
+    TableData(String),
+    NextBatchTableData(String, Option<HashMap<String, AttributeValue>>),
 }
 
 #[derive(Debug)]
 pub enum FetchResponse {
-    TablesFetched(Vec<String>),
-    TableDataFetched(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
+    Tables(Vec<String>),
+    TableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
+    NextBatchTableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
 }
 
 pub async fn get_client() -> Client {

@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-
-use aws_sdk_dynamodb::types::AttributeValue;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
@@ -27,8 +24,18 @@ pub enum Action {
     TransmitSelectedTable(String),
 
     SelectDataMode,
+    SelectTableDataRowPrev,
+    SelectTableDataRowNext,
+    SelectTableDataRowScrollUp,
+    SelectTableDataRowScrollDown,
+    SelectTableDataRowFirst,
+    SelectTableDataRowLast,
+    SelectTableDataRow,
     TransmitTableData(Vec<String>, bool),
+    TransmitNextBatcTableData(Vec<String>, bool),
     FetchTableData(String),
+    FetchMoreTableData(String),
+    LoadMoreTableData(String),
 
     FilteringTables,
     SelectingRegion,

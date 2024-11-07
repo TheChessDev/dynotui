@@ -31,18 +31,25 @@ async fn main() -> Result<()> {
     task::spawn(async move {
         while let Some(request) = fetch_rx.recv().await {
             match request {
-                FetchRequest::FetchTables => {
+                FetchRequest::Tables => {
                     let collections = load_collections().await;
-                    let _ = response_tx
-                        .send(FetchResponse::TablesFetched(collections))
-                        .await;
+                    let _ = response_tx.send(FetchResponse::Tables(collections)).await;
                 }
-                FetchRequest::FetchTableData(collection_name, last_evaluated_key) => {
+                FetchRequest::TableData(collection_name) => {
+                    if let Ok(result) = load_data(&collection_name, None).await {
+                        let (data, has_more, last_evaluated_key) = result;
+
+                        let _ = response_tx
+                            .send(FetchResponse::TableData(data, has_more, last_evaluated_key))
+                            .await;
+                    }
+                }
+                FetchRequest::NextBatchTableData(collection_name, last_evaluated_key) => {
                     if let Ok(result) = load_data(&collection_name, last_evaluated_key).await {
                         let (data, has_more, last_evaluated_key) = result;
 
                         let _ = response_tx
-                            .send(FetchResponse::TableDataFetched(
+                            .send(FetchResponse::NextBatchTableData(
                                 data,
                                 has_more,
                                 last_evaluated_key,
