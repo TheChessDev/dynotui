@@ -1,6 +1,3 @@
-use aws_config::meta::region::RegionProviderChain;
-use aws_config::BehaviorVersion;
-use aws_sdk_dynamodb::Client;
 use color_eyre::Result;
 use ratatui::prelude::*;
 use ratatui::style::Color;
@@ -31,7 +28,6 @@ pub struct CollectionsBox {
     list_state: ListState,
     selected_collection: String,
     filter_text: String,
-    region: String,
 }
 
 impl CollectionsBox {
@@ -51,57 +47,6 @@ impl CollectionsBox {
                 .cloned()
                 .collect();
         }
-    }
-
-    pub async fn get_client(&self) -> Client {
-        let region = "us-east-1";
-        let region_provider = RegionProviderChain::default_provider().or_else(region);
-        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
-            .region(region_provider)
-            .load()
-            .await;
-
-        Client::new(&config)
-    }
-
-    pub async fn load_collections(&mut self) {
-        let client = self.get_client().await;
-
-        let mut last_evaluated_table_name = None;
-        self.collections.clear();
-
-        loop {
-            let request = client
-                .list_tables()
-                .set_exclusive_start_table_name(last_evaluated_table_name.clone());
-
-            match request.send().await {
-                Ok(output) => {
-                    let table_names = output.table_names();
-
-                    for name in table_names {
-                        self.collections.push(name.clone());
-                    }
-
-                    last_evaluated_table_name =
-                        output.last_evaluated_table_name().map(|s| s.to_string());
-
-                    if last_evaluated_table_name.is_none() {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    self.collections = vec!["Error loading collections.".to_string()];
-                    break;
-                }
-            }
-        }
-
-        self.apply_filter();
-    }
-
-    fn select_none(&mut self) {
-        self.list_state.select(None);
     }
 
     fn select_next(&mut self) {
@@ -129,7 +74,7 @@ impl CollectionsBox {
     }
 
     fn set_selected(&mut self) -> bool {
-        if let None = self.list_state.selected() {
+        if self.list_state.selected().is_none() {
             return false;
         }
 
@@ -143,10 +88,6 @@ impl CollectionsBox {
         self.selected_collection = new_col_name;
 
         true
-    }
-
-    fn reset(&mut self) {
-        self.active = false;
     }
 }
 
@@ -169,14 +110,14 @@ impl Component for CollectionsBox {
             Action::Render => {
                 // add any logic here that should run on every render
             }
-            Action::SelectingTable => {
+            Action::SelectTableMode => {
                 self.active = true;
                 self.command_tx
                     .as_ref()
                     .unwrap()
                     .send(Action::FetchTables)?;
             }
-            Action::FilteringTables | Action::SelectingRegion | Action::SelectingData => {
+            Action::FilteringTables | Action::SelectingRegion | Action::SelectDataMode => {
                 self.active = false
             }
             Action::TransmitSubmittedText(text) => {
@@ -186,6 +127,36 @@ impl Component for CollectionsBox {
             Action::TransmitTables(tables) => {
                 self.collections = tables;
                 self.apply_filter();
+            }
+            Action::SelectTablePrev => {
+                self.select_previous();
+            }
+            Action::SelectTableNext => {
+                self.select_next();
+            }
+            Action::SelectTableScrollUp => {
+                self.scroll_up();
+            }
+            Action::SelectTableScrollDown => {
+                self.scroll_down();
+            }
+            Action::SelectTableFirst => {
+                self.select_first();
+            }
+            Action::SelectTableLast => {
+                self.select_last();
+            }
+            Action::SelectTable => {
+                self.set_selected();
+                let command_ref = self.command_tx.as_ref().unwrap();
+
+                command_ref.send(Action::StartLoading("Fetching Table Data".to_string()))?;
+
+                command_ref.send(Action::TransmitSelectedTable(
+                    self.selected_collection.clone(),
+                ))?;
+
+                command_ref.send(Action::FetchTableData(self.selected_collection.clone()))?;
             }
             _ => {}
         }

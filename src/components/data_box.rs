@@ -1,10 +1,7 @@
 use color_eyre::Result;
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::{EMERALD, VIOLET};
-use std::collections::HashMap;
 
-use aws_sdk_dynamodb::types::AttributeValue;
-use aws_sdk_dynamodb::{Client, Error};
 use ratatui::style::Color;
 use ratatui::widgets::{List, ListItem, ListState, StatefulWidget};
 use ratatui::{
@@ -12,12 +9,10 @@ use ratatui::{
     style::Style,
     widgets::{Block, BorderType, Borders},
 };
-use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::config::Config;
-use crate::util::dynamodb_to_json;
 
 use super::Component;
 
@@ -25,13 +20,12 @@ use super::Component;
 pub struct DataBox {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
-    pub active: bool,
-    pub title: String,
-    pub records: Vec<String>,
-    pub has_more: bool,
-    pub last_evaluated_key: Option<HashMap<String, AttributeValue>>,
-    pub list_state: ListState,
-    pub selected_row: String,
+    active: bool,
+    title: String,
+    records: Vec<String>,
+    has_more: bool,
+    list_state: ListState,
+    selected_row: String,
 }
 
 impl DataBox {
@@ -41,42 +35,6 @@ impl DataBox {
 
     pub fn set_title(&mut self, new_title: &str) {
         self.title = new_title.to_string();
-    }
-
-    pub async fn load_data(&mut self, client: &Client, collection_name: &str) -> Result<(), Error> {
-        if !self.has_more {
-            return Ok(()); // No more records to load
-        }
-
-        let mut request = client.scan().table_name(collection_name).limit(100);
-
-        // Add `ExclusiveStartKey` if continuing from a previous batch
-        if let Some(ref key) = self.last_evaluated_key {
-            for (k, v) in key.iter() {
-                request = request.exclusive_start_key(k.clone(), v.clone());
-            }
-        }
-
-        let response = request.send().await?;
-
-        if let Some(items) = response.items {
-            self.records.extend(items.into_iter().map(|item| {
-                let mut json_item = Map::new();
-                for (k, v) in item {
-                    json_item.insert(k, dynamodb_to_json(v));
-                }
-                Value::Object(json_item).to_string()
-            }));
-        }
-
-        // Update pagination state
-        self.last_evaluated_key = response
-            .last_evaluated_key
-            .map(|key| key.into_iter().collect::<HashMap<String, AttributeValue>>());
-
-        self.has_more = self.last_evaluated_key.is_some();
-
-        Ok(())
     }
 
     fn select_none(&mut self) {
@@ -116,7 +74,6 @@ impl DataBox {
     fn reset(&mut self) {
         self.records.clear();
         self.has_more = true;
-        self.last_evaluated_key = None;
         self.title = "Data".to_string();
         self.selected_row = String::new();
         self.list_state = ListState::default();
@@ -144,9 +101,14 @@ impl Component for DataBox {
             Action::Render => {
                 // add any logic here that should run on every render
             }
-            Action::SelectingData => self.active = true,
-            Action::SelectingRegion | Action::FilteringTables | Action::SelectingTable => {
+            Action::SelectDataMode => self.active = true,
+            Action::SelectingRegion | Action::FilteringTables | Action::SelectTableMode => {
                 self.active = false
+            }
+            Action::TransmitSelectedTable(table) => self.set_title(&table),
+            Action::TransmitTableData(data, has_more) => {
+                self.records = data;
+                self.has_more = has_more;
             }
             _ => {}
         }

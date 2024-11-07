@@ -2,18 +2,28 @@
   "keybindings": {
     "View": {
       "<q>": "Quit", // Quit the application
-      "<Ctrl-d>": "Quit", // Another way to quit
       "<Ctrl-c>": "Quit", // Yet another way to quit
       "<Ctrl-z>": "Suspend", // Suspend the application
-      "<t>": "SelectingTable",
+      "<t>": "SelectTableMode",
       "</>": "FilteringTables",
-      "<i>": "SelectingData",
-      "<r>": "SelectingRegion"
+      "<i>": "SelectDataMode"
     },
     "Insert": {
         "<esc>": "ExitInsertMode",
         "<backspace>": "DeleteCharacter",
-        "<enter>": "SubmitText",
+        "<enter>": "SubmitText"
+    },
+    "SelectTableMode": {
+        "<q>": "Quit", // Quit the application
+        "<Ctrl-c>": "Quit", // Yet another way to quit
+        "<j>": "SelectTableNext",
+        "<k>": "SelectTablePrev",
+        "</>": "FilteringTables",
+        "<Ctrl-d>": "SelectTableScrollDown", // Another way to quit
+        "<Ctrl-u>": "SelectTableScrollUp", // Another way to quit
+        "<g>": "SelectTableFirst",
+        "<Shift-g>": "SelectTableLast",
+        "<l>": "SelectTable",
     }
   }
 }

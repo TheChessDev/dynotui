@@ -1,7 +1,7 @@
 use clap::Parser;
 use cli::Cli;
 use color_eyre::Result;
-use data::{load_collections, FetchRequest, FetchResponse};
+use data::{load_collections, load_data, FetchRequest, FetchResponse};
 use tokio::{sync::mpsc, task};
 
 use crate::app::App;
@@ -36,6 +36,19 @@ async fn main() -> Result<()> {
                     let _ = response_tx
                         .send(FetchResponse::TablesFetched(collections))
                         .await;
+                }
+                FetchRequest::FetchTableData(collection_name, last_evaluated_key) => {
+                    if let Ok(result) = load_data(&collection_name, last_evaluated_key).await {
+                        let (data, has_more, last_evaluated_key) = result;
+
+                        let _ = response_tx
+                            .send(FetchResponse::TableDataFetched(
+                                data,
+                                has_more,
+                                last_evaluated_key,
+                            ))
+                            .await;
+                    }
                 }
             }
         }

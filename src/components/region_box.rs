@@ -55,10 +55,6 @@ impl Component for AWSRegionBox {
             Action::Render => {
                 // add any logic here that should run on every render
             }
-            Action::SelectingRegion => self.active = true,
-            Action::SelectingData | Action::SelectingTable | Action::FilteringTables => {
-                self.active = false
-            }
             _ => {}
         }
         Ok(None)

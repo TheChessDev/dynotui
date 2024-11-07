@@ -57,7 +57,7 @@ impl Component for FilterInput {
                     .unwrap()
                     .send(Action::EnterInsertMode)?;
             }
-            Action::SelectingTable | Action::SelectingData | Action::SelectingRegion => {
+            Action::SelectTableMode | Action::SelectDataMode | Action::SelectingRegion => {
                 self.active = false
             }
             Action::NewCharacter(c) => {
@@ -84,7 +84,7 @@ impl Component for FilterInput {
                 self.active = false;
 
                 command_tx_lock.send(Action::ExitInsertMode)?;
-                command_tx_lock.send(Action::SelectingTable)?;
+                command_tx_lock.send(Action::SelectTableMode)?;
             }
             _ => {}
         }

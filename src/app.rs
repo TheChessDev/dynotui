@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use aws_sdk_dynamodb::types::AttributeValue;
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::Rect;
@@ -29,6 +32,7 @@ pub struct App {
     action_rx: mpsc::UnboundedReceiver<Action>,
     fetch_tx: mpsc::Sender<FetchRequest>,
     fetch_rx: mpsc::Receiver<FetchResponse>,
+    last_evaluated_key: Option<HashMap<String, AttributeValue>>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -36,6 +40,7 @@ pub enum Mode {
     #[default]
     View,
     Insert,
+    SelectTableMode,
 }
 
 impl App {
@@ -68,6 +73,7 @@ impl App {
             action_rx,
             fetch_rx,
             fetch_tx,
+            last_evaluated_key: None,
         })
     }
 
@@ -94,6 +100,13 @@ impl App {
                 match response {
                     FetchResponse::TablesFetched(tables) => {
                         self.action_tx.send(Action::TransmitTables(tables))?;
+                        self.action_tx.send(Action::Render)?;
+                        self.action_tx.send(Action::StopLoading)?;
+                    }
+                    FetchResponse::TableDataFetched(data, has_more, last_evaluated_key) => {
+                        self.last_evaluated_key = last_evaluated_key;
+                        self.action_tx
+                            .send(Action::TransmitTableData(data, has_more))?;
                         self.action_tx.send(Action::Render)?;
                         self.action_tx.send(Action::StopLoading)?;
                     }
@@ -197,10 +210,17 @@ impl App {
                 Action::Render => self.render(tui)?,
                 Action::EnterInsertMode => self.mode = Mode::Insert,
                 Action::ExitInsertMode => self.mode = Mode::View,
+                Action::SelectTableMode => self.mode = Mode::SelectTableMode,
                 Action::FetchTables => {
                     self.action_tx
                         .send(Action::StartLoading("Fetching Tables".to_string()))?;
                     self.fetch_tx.try_send(FetchRequest::FetchTables)?;
+                }
+                Action::FetchTableData(ref collection_name) => {
+                    self.fetch_tx.try_send(FetchRequest::FetchTableData(
+                        collection_name.to_string(),
+                        self.last_evaluated_key.clone(),
+                    ))?;
                 }
                 _ => {}
             }
