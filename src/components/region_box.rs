@@ -30,10 +30,6 @@ impl AWSRegionBox {
             ..Default::default()
         }
     }
-
-    fn reset(&mut self) {
-        self.active = false;
-    }
 }
 
 impl Component for AWSRegionBox {

@@ -1,5 +1,3 @@
-use std::i64;
-
 use clap::Parser;
 use cli::Cli;
 use color_eyre::Result;
