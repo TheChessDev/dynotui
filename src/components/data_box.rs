@@ -27,6 +27,7 @@ pub struct DataBox {
     list_state: ListState,
     selected_row: String,
     collection_name: String,
+    fetching: bool,
 }
 
 impl DataBox {
@@ -105,19 +106,40 @@ impl Component for DataBox {
             }
             Action::SelectTableDataRowNext => {
                 self.select_next();
+                if let Some(selected) = self.list_state.selected() {
+                    if selected >= self.records.len() - 5 && self.has_more && !self.fetching {
+                        self.fetching = true;
+                        let command_ref = self.command_tx.as_ref().unwrap();
+                        command_ref
+                            .send(Action::StartLoading("Loading More Table Data".to_string()))?;
+                        command_ref
+                            .send(Action::FetchMoreTableData(self.collection_name.clone()))?;
+                    }
+                }
             }
             Action::SelectTableDataRowScrollUp => {
                 self.scroll_up();
             }
             Action::SelectTableDataRowScrollDown => {
                 self.scroll_down();
+                if let Some(selected) = self.list_state.selected() {
+                    if selected >= self.records.len() - 5 && self.has_more && !self.fetching {
+                        self.fetching = true;
+                        let command_ref = self.command_tx.as_ref().unwrap();
+                        command_ref
+                            .send(Action::StartLoading("Loading More Table Data".to_string()))?;
+                        command_ref
+                            .send(Action::FetchMoreTableData(self.collection_name.clone()))?;
+                    }
+                }
             }
             Action::SelectTableDataRowFirst => {
                 self.select_first();
             }
             Action::SelectTableDataRowLast => {
                 self.select_last();
-                if self.has_more {
+                if self.has_more && !self.fetching {
+                    self.fetching = true;
                     let command_ref = self.command_tx.as_ref().unwrap();
                     command_ref
                         .send(Action::StartLoading("Loading More Table Data".to_string()))?;
@@ -128,11 +150,21 @@ impl Component for DataBox {
                 self.set_selected();
             }
             Action::TransmitNextBatcTableData(data, has_more) => {
+                self.fetching = false;
                 self.has_more = has_more;
                 self.records.extend(data);
             }
             Action::FetchTableData(_) => {
                 self.records.clear();
+            }
+            Action::ApproximateTableDataCount(count) => {
+                let status_text =
+                    format!("Fetched {} Items (Scanned: {})", self.records.len(), count);
+
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::UpdateStatusText(status_text))?;
             }
             _ => {}
         }

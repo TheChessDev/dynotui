@@ -13,6 +13,7 @@ pub mod data_box;
 pub mod filter_input;
 pub mod loading;
 pub mod region_box;
+pub mod status_text;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 ///

@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Color;
 use ratatui::widgets::{Paragraph, StatefulWidget, Widget};
 use ratatui::Frame;
-use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect, style::Style};
+use ratatui::{layout::Rect, style::Style};
 use throbber_widgets_tui::ThrobberState;
 
 use crate::action::Action;
@@ -30,14 +30,6 @@ impl LoadingBox {
         self.loading_state.calc_next();
     }
 
-    pub fn start_loading(&mut self) {
-        self.active = true;
-    }
-
-    pub fn end_loading(&mut self) {
-        self.active = false;
-    }
-
     pub fn set_message(&mut self, message: &str) {
         self.message = message.to_string();
     }
@@ -59,7 +51,9 @@ impl Component for LoadingBox {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
-        let [_, bottom] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+        let [left, _] =
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Min(0)]).areas(area);
+        let [_, bottom] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(left);
 
         if self.active {
             let full = throbber_widgets_tui::Throbber::default()

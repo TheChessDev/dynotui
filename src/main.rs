@@ -1,7 +1,9 @@
+use std::i64;
+
 use clap::Parser;
 use cli::Cli;
 use color_eyre::Result;
-use data::{load_collections, load_data, FetchRequest, FetchResponse};
+use data::{get_approximate_item_count, load_collections, load_data, FetchRequest, FetchResponse};
 use tokio::{sync::mpsc, task};
 
 use crate::app::App;
@@ -54,6 +56,17 @@ async fn main() -> Result<()> {
                                 has_more,
                                 last_evaluated_key,
                             ))
+                            .await;
+                    }
+                }
+                FetchRequest::GetApproximateItemCount(collection_name) => {
+                    if let Ok(result) = get_approximate_item_count(&collection_name).await {
+                        let _ = response_tx
+                            .send(FetchResponse::ApproximateTableDataCount(result))
+                            .await;
+                    } else {
+                        let _ = response_tx
+                            .send(FetchResponse::ApproximateTableDataCount(0))
                             .await;
                     }
                 }

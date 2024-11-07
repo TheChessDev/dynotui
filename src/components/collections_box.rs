@@ -112,10 +112,15 @@ impl Component for CollectionsBox {
             }
             Action::SelectTableMode => {
                 self.active = true;
-                self.command_tx
-                    .as_ref()
-                    .unwrap()
-                    .send(Action::FetchTables)?;
+                let command_ref = self.command_tx.as_ref().unwrap();
+
+                if self.collections.is_empty() {
+                    command_ref.send(Action::StartLoading("Fetching Tables".to_string()))?;
+                }
+
+                command_ref.send(Action::UpdateStatusText("".to_string()))?;
+
+                command_ref.send(Action::FetchTables)?;
             }
             Action::FilteringTables | Action::SelectingRegion | Action::SelectDataMode => {
                 self.active = false

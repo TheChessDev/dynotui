@@ -11,6 +11,7 @@ pub enum FetchRequest {
     Tables,
     TableData(String),
     NextBatchTableData(String, Option<HashMap<String, AttributeValue>>),
+    GetApproximateItemCount(String),
 }
 
 #[derive(Debug)]
@@ -18,6 +19,7 @@ pub enum FetchResponse {
     Tables(Vec<String>),
     TableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
     NextBatchTableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
+    ApproximateTableDataCount(i64),
 }
 
 pub async fn get_client() -> Client {
@@ -109,4 +111,18 @@ pub async fn load_data(
     let has_more = new_last_evaluated_key.is_some();
 
     Ok((records, has_more, new_last_evaluated_key))
+}
+
+pub async fn get_approximate_item_count(table_name: &str) -> Result<i64, Error> {
+    let client = get_client().await;
+    let response = client
+        .describe_table()
+        .table_name(table_name)
+        .send()
+        .await?;
+    if let Some(table) = response.table {
+        Ok(table.item_count.unwrap_or(0))
+    } else {
+        Ok(0)
+    }
 }

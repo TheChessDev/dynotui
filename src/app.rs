@@ -12,7 +12,7 @@ use crate::{
     action::Action,
     components::{
         collections_box::CollectionsBox, data_box::DataBox, filter_input::FilterInput,
-        loading::LoadingBox, region_box::AWSRegionBox, Component,
+        loading::LoadingBox, region_box::AWSRegionBox, status_text::StatusBox, Component,
     },
     config::Config,
     data::{FetchRequest, FetchResponse},
@@ -64,6 +64,7 @@ impl App {
                 Box::new(AWSRegionBox::new(region)),
                 Box::new(FilterInput::new(filter_collections_title)),
                 Box::new(LoadingBox::new()),
+                Box::new(StatusBox::new()),
             ],
             should_quit: false,
             should_suspend: false,
@@ -118,6 +119,10 @@ impl App {
                             .send(Action::TransmitNextBatcTableData(data, has_more))?;
                         self.action_tx.send(Action::Render)?;
                         self.action_tx.send(Action::StopLoading)?;
+                    }
+                    FetchResponse::ApproximateTableDataCount(count) => {
+                        self.action_tx
+                            .send(Action::ApproximateTableDataCount(count))?;
                     }
                 }
             }
@@ -222,15 +227,21 @@ impl App {
                 Action::SelectTableMode => self.mode = Mode::SelectTable,
                 Action::SelectDataMode => self.mode = Mode::SelectTableDataRow,
                 Action::FetchTables => {
-                    self.action_tx
-                        .send(Action::StartLoading("Fetching Tables".to_string()))?;
                     self.fetch_tx.try_send(FetchRequest::Tables)?;
                 }
                 Action::FetchTableData(ref collection_name) => {
                     self.fetch_tx
+                        .try_send(FetchRequest::GetApproximateItemCount(
+                            collection_name.to_string(),
+                        ))?;
+                    self.fetch_tx
                         .try_send(FetchRequest::TableData(collection_name.to_string()))?;
                 }
                 Action::FetchMoreTableData(ref collection_name) => {
+                    self.fetch_tx
+                        .try_send(FetchRequest::GetApproximateItemCount(
+                            collection_name.to_string(),
+                        ))?;
                     self.fetch_tx.try_send(FetchRequest::NextBatchTableData(
                         collection_name.to_string(),
                         self.last_evaluated_key.clone(),

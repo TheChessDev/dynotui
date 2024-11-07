@@ -36,6 +36,7 @@ pub enum Action {
     FetchTableData(String),
     FetchMoreTableData(String),
     LoadMoreTableData(String),
+    ApproximateTableDataCount(i64),
 
     FilteringTables,
     SelectingRegion,
@@ -49,4 +50,6 @@ pub enum Action {
     TransmitTables(Vec<String>),
     StartLoading(String),
     StopLoading,
+
+    UpdateStatusText(String),
 }
