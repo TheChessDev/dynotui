@@ -1,254 +1,241 @@
-use std::time::{Duration, Instant};
-
-use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use aws_sdk_dynamodb::Client;
-use ratatui::{
-    buffer::Buffer,
-    crossterm::{
-        self,
-        event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
-    },
-    layout::{Constraint, Direction, Layout, Rect},
-    widgets::Widget,
-    DefaultTerminal, Frame,
-};
-use tokio::time::sleep;
+use color_eyre::Result;
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::prelude::Rect;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use tracing::{debug, info};
 
 use crate::{
+    action::Action,
     components::{
-        collections_box::CollectionsBox, data_box::DataBox, loading::LoadingBox,
-        region_box::AWSRegionBox, MutableComponent,
+        collections_box::CollectionsBox, data_box::DataBox, filter_input::FilterInput,
+        loading::LoadingBox, region_box::AWSRegionBox, Component,
     },
-    message::Message,
+    config::Config,
+    data::{FetchRequest, FetchResponse},
+    tui::{Event, Tui},
 };
 
 pub struct App {
+    config: Config,
+    tick_rate: f64,
+    frame_rate: f64,
+    components: Vec<Box<dyn Component>>,
+    should_quit: bool,
+    should_suspend: bool,
     mode: Mode,
-    exit: bool,
-    collections_box: CollectionsBox,
-    aws_region_box: AWSRegionBox,
-    data_box: DataBox,
-    client: Client,
-    loading_box: LoadingBox,
+    last_tick_key_events: Vec<KeyEvent>,
+    action_tx: mpsc::UnboundedSender<Action>,
+    action_rx: mpsc::UnboundedReceiver<Action>,
+    fetch_tx: mpsc::Sender<FetchRequest>,
+    fetch_rx: mpsc::Receiver<FetchResponse>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mode {
     #[default]
-    FilteringCollections,
-    SelectingCollection,
-    SelectingDataItem,
-    SelectingRegion,
+    View,
+    Insert,
 }
 
 impl App {
-    pub async fn new() -> anyhow::Result<Self> {
+    pub fn new(
+        tick_rate: f64,
+        frame_rate: f64,
+        fetch_tx: mpsc::Sender<FetchRequest>,
+        fetch_rx: mpsc::Receiver<FetchResponse>,
+    ) -> Result<Self> {
+        let (action_tx, action_rx) = mpsc::unbounded_channel();
         let region = "us-east-1";
-        let region_provider = RegionProviderChain::default_provider().or_else(region);
-        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
-            .region(region_provider)
-            .load()
-            .await;
-
-        let client = Client::new(&config);
-
-        let mut collections_box = CollectionsBox::new();
-        collections_box.load_collections(&client).await;
+        let filter_collections_title = "Filter Tables";
 
         Ok(Self {
-            exit: false,
-            mode: Mode::SelectingCollection,
-            collections_box,
-            aws_region_box: AWSRegionBox::new(region),
-            data_box: DataBox::new(),
-            client,
-            loading_box: LoadingBox::new(),
+            tick_rate,
+            frame_rate,
+            components: vec![
+                Box::new(CollectionsBox::new()),
+                Box::new(DataBox::new()),
+                Box::new(AWSRegionBox::new(region)),
+                Box::new(FilterInput::new(filter_collections_title)),
+                Box::new(LoadingBox::new()),
+            ],
+            should_quit: false,
+            should_suspend: false,
+            config: Config::new()?,
+            mode: Mode::View,
+            last_tick_key_events: Vec::new(),
+            action_tx,
+            action_rx,
+            fetch_rx,
+            fetch_tx,
         })
     }
 
-    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
-        let tick_rate = Duration::from_millis(50);
-        let mut last_tick = Instant::now();
+    pub async fn run(&mut self) -> Result<()> {
+        let mut tui = Tui::new()?
+            // .mouse(true) // uncomment this line to enable mouse support
+            .tick_rate(self.tick_rate)
+            .frame_rate(self.frame_rate);
+        tui.enter()?;
 
-        while !self.exit {
-            terminal.draw(|frame| self.draw(frame))?;
-
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
-
-            self.handle_events(timeout).await?;
-
-            if self.loading_box.active && last_tick.elapsed() >= tick_rate {
-                self.on_tick();
-                last_tick = Instant::now();
-            }
+        for component in self.components.iter_mut() {
+            component.register_action_handler(self.action_tx.clone())?;
         }
-        Ok(())
-    }
+        for component in self.components.iter_mut() {
+            component.register_config_handler(self.config.clone())?;
+        }
+        for component in self.components.iter_mut() {
+            component.init(tui.size()?)?;
+        }
 
-    fn draw(&mut self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
-    }
-
-    async fn handle_events(&mut self, timeout: Duration) -> anyhow::Result<()> {
-        let mut messages = Vec::new();
-
-        if crossterm::event::poll(timeout)? {
-            let event = event::read()?;
-            match event {
-                Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                    match self.mode {
-                        Mode::SelectingCollection => {
-                            self.collections_box
-                                .handle_event(key_event, |msg| messages.push(msg));
-                        }
-                        Mode::FilteringCollections => {
-                            self.collections_box
-                                .filter_input
-                                .handle_event(key_event, |msg| messages.push(msg));
-                            self.collections_box.apply_filter();
-                            self.collections_box.select_first();
-                        }
-                        Mode::SelectingDataItem => {
-                            self.data_box
-                                .handle_event(key_event, |msg| messages.push(msg));
-                        }
-                        Mode::SelectingRegion => {
-                            self.aws_region_box
-                                .handle_event(key_event, |msg| messages.push(msg));
-                        }
+        let action_tx = self.action_tx.clone();
+        loop {
+            while let Ok(response) = self.fetch_rx.try_recv() {
+                match response {
+                    FetchResponse::TablesFetched(tables) => {
+                        self.action_tx.send(Action::TransmitTables(tables))?;
+                        self.action_tx.send(Action::Render)?;
+                        self.action_tx.send(Action::StopLoading)?;
                     }
-                    self.handle_key_event(key_event)
                 }
-                _ => {}
-            };
-        }
+            }
 
-        for message in messages {
-            self.process_message(message).await
+            self.handle_events(&mut tui).await?;
+            self.handle_actions(&mut tui)?;
+            if self.should_suspend {
+                tui.suspend()?;
+                action_tx.send(Action::Resume)?;
+                action_tx.send(Action::ClearScreen)?;
+                // tui.mouse(true);
+                tui.enter()?;
+            } else if self.should_quit {
+                tui.stop()?;
+                break;
+            }
         }
-
+        tui.exit()?;
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
-        if !matches!(self.mode, Mode::FilteringCollections) {
-            match key_event.code {
-                KeyCode::Char('q') | KeyCode::Esc => self.exit(),
-                KeyCode::Char('/') => {
-                    self.mode = Mode::FilteringCollections;
-                    self.collections_box.filter_input.reset();
+    async fn handle_events(&mut self, tui: &mut Tui) -> Result<()> {
+        let Some(event) = tui.next_event().await else {
+            return Ok(());
+        };
+        let action_tx = self.action_tx.clone();
+        match event {
+            Event::Quit => action_tx.send(Action::Quit)?,
+            Event::Tick => action_tx.send(Action::Tick)?,
+            Event::Render => action_tx.send(Action::Render)?,
+            Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
+            Event::Key(key) => self.handle_key_event(key)?,
+            _ => {}
+        }
+        for component in self.components.iter_mut() {
+            if let Some(action) = component.handle_events(Some(event.clone()))? {
+                action_tx.send(action)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        let action_tx = self.action_tx.clone();
+
+        if matches!(&self.mode, Mode::Insert) {
+            let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+                return Ok(());
+            };
+
+            if let Some(action) = keymap.get(&vec![key]) {
+                info!("Got action: {action:?}");
+                action_tx.send(action.clone())?;
+            } else if let Some(character) = self.get_char_from_key_event(key) {
+                action_tx.send(Action::NewCharacter(character))?;
+            }
+
+            return Ok(());
+        }
+
+        let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+            return Ok(());
+        };
+
+        match keymap.get(&vec![key]) {
+            Some(action) => {
+                info!("Got action: {action:?}");
+                action_tx.send(action.clone())?;
+            }
+            _ => {
+                // If the key was not handled as a single key action,
+                // then consider it for multi-key combinations.
+                self.last_tick_key_events.push(key);
+
+                // Check for multi-key combinations
+                if let Some(action) = keymap.get(&self.last_tick_key_events) {
+                    info!("Got action: {action:?}");
+                    action_tx.send(action.clone())?;
                 }
-                KeyCode::Char('i') => self.mode = Mode::SelectingDataItem,
-                KeyCode::Char('t') => self.mode = Mode::SelectingCollection,
-                KeyCode::Char('r') => self.mode = Mode::SelectingRegion,
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_actions(&mut self, tui: &mut Tui) -> Result<()> {
+        while let Ok(action) = self.action_rx.try_recv() {
+            if action != Action::Tick && action != Action::Render {
+                debug!("{action:?}");
+            }
+            match action {
+                Action::Tick => {
+                    self.last_tick_key_events.drain(..);
+                }
+                Action::Quit => self.should_quit = true,
+                Action::Suspend => self.should_suspend = true,
+                Action::Resume => self.should_suspend = false,
+                Action::ClearScreen => tui.terminal.clear()?,
+                Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
+                Action::Render => self.render(tui)?,
+                Action::EnterInsertMode => self.mode = Mode::Insert,
+                Action::ExitInsertMode => self.mode = Mode::View,
+                Action::FetchTables => {
+                    self.action_tx
+                        .send(Action::StartLoading("Fetching Tables".to_string()))?;
+                    self.fetch_tx.try_send(FetchRequest::FetchTables)?;
+                }
                 _ => {}
             }
+            for component in self.components.iter_mut() {
+                if let Some(action) = component.update(action.clone())? {
+                    self.action_tx.send(action)?
+                };
+            }
         }
+        Ok(())
     }
 
-    fn exit(&mut self) {
-        self.exit = true;
+    fn handle_resize(&mut self, tui: &mut Tui, w: u16, h: u16) -> Result<()> {
+        tui.resize(Rect::new(0, 0, w, h))?;
+        self.render(tui)?;
+        Ok(())
     }
 
-    pub async fn process_message(&mut self, message: Message) {
-        if message.should_trigger_loading() {
-            if let Some(msg) = message.loading_message() {
-                self.loading_box.set_message(msg);
-            }
-
-            self.loading_box.start_loading();
-
-            self.on_tick();
-        }
-
-        match message {
-            Message::CancelFilteringCollectionMode => {
-                self.mode = Mode::SelectingCollection;
-                self.collections_box.apply_filter();
-            }
-            Message::ApplyCollectionsFilter => self.mode = Mode::SelectingCollection,
-            Message::FilterFromSelectingCollectionMode => self.mode = Mode::FilteringCollections,
-            Message::SelectCollection(collection) => {
-                self.loading_box.start_loading();
-                self.on_tick();
-                self.data_box.reset();
-
-                sleep(Duration::from_secs(6)).await;
-
-                if let Err(_error) = self.data_box.load_data(&self.client, &collection).await {
-                    self.mode = Mode::SelectingCollection;
-                    self.loading_box.end_loading();
-                    return;
-                }
-
-                self.data_box.set_title(&collection);
-                self.mode = Mode::SelectingDataItem;
-                self.loading_box.start_loading();
-            }
-            Message::LoadMoreData => {
-                if let Err(_error) = self
-                    .data_box
-                    .load_data(&self.client, &self.collections_box.selected_collection)
-                    .await
-                {
-                    self.mode = Mode::SelectingCollection;
+    fn render(&mut self, tui: &mut Tui) -> Result<()> {
+        tui.draw(|frame| {
+            for component in self.components.iter_mut() {
+                if let Err(err) = component.draw(frame, frame.area()) {
+                    let _ = self
+                        .action_tx
+                        .send(Action::Error(format!("Failed to draw: {:?}", err)));
                 }
             }
+        })?;
+        Ok(())
+    }
+
+    fn get_char_from_key_event(&self, key_event: KeyEvent) -> Option<char> {
+        match key_event.code {
+            KeyCode::Char(c) => Some(c),
+            _ => None,
         }
-    }
-
-    fn on_tick(&mut self) {
-        self.loading_box.on_tick();
-    }
-}
-
-impl Widget for &mut App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Min(0), Constraint::Length(3)])
-            .split(area);
-
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(30), Constraint::Percentage(70)])
-            .split(layout[0]);
-
-        let left_col_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Length(3),
-                Constraint::Min(0),
-                Constraint::Length(3),
-            ])
-            .split(columns[0]);
-
-        self.loading_box.render(layout[1], buf, false);
-
-        self.collections_box.render(
-            left_col_layout[1],
-            buf,
-            matches!(self.mode, Mode::SelectingCollection),
-        );
-
-        self.aws_region_box.render(
-            left_col_layout[0],
-            buf,
-            matches!(self.mode, Mode::SelectingRegion),
-        );
-
-        self.data_box.render(
-            columns[1],
-            buf,
-            matches!(self.mode, Mode::SelectingDataItem),
-        );
-
-        self.collections_box.filter_input.render(
-            left_col_layout[2],
-            buf,
-            matches!(self.mode, Mode::FilteringCollections),
-        )
     }
 }

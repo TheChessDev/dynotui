@@ -1,10 +1,11 @@
+use aws_config::meta::region::RegionProviderChain;
+use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client;
-use ratatui::crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::style::{Color, Modifier};
+use color_eyre::Result;
+use ratatui::prelude::*;
+use ratatui::style::Color;
 use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, StatefulWidget};
 use ratatui::{
-    buffer::Buffer,
-    crossterm::event::KeyEvent,
     layout::Rect,
     style::Style,
     widgets::{Block, BorderType, Borders},
@@ -12,64 +13,60 @@ use ratatui::{
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::message::Message;
+use crate::action::Action;
+use crate::config::Config;
+use crate::constants::{ACTIVE_PANE_COLOR, LIST_ITEM_SELECTED_STYLE};
 
-use super::filter_input::FilterInput;
-use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};
+use super::Component;
 
-const SELECTED_STYLE: Style = Style::new()
-    .bg(ROW_HOVER_COLOR)
-    .add_modifier(Modifier::BOLD);
-
+#[derive(Debug, Default)]
 pub struct CollectionsBox {
-    pub selected: bool,
-    pub collections: Vec<String>,
-    pub filtered_collections: Vec<String>,
-    pub collections_list: CollectionsList,
-    pub selected_collection: String,
-    pub filter_input: FilterInput,
-}
-
-pub struct CollectionsList {
-    state: ListState,
+    active: bool,
+    command_tx: Option<UnboundedSender<Action>>,
+    config: Config,
+    collections: Vec<String>,
+    filtered_collections: Vec<String>,
+    list_state: ListState,
+    selected_collection: String,
+    filter_text: String,
+    region: String,
 }
 
 impl CollectionsBox {
     pub fn new() -> Self {
-        let collections_list = CollectionsList {
-            state: ListState::default(),
-        };
-
-        Self {
-            selected: false,
-            collections: Vec::new(),
-            filtered_collections: Vec::new(),
-            collections_list,
-            selected_collection: String::new(),
-            filter_input: FilterInput::new("Filter Tables"),
-        }
+        Self::default()
     }
 
     pub fn apply_filter(&mut self) {
-        if self.filter_input.input.is_empty() {
+        if self.filter_text.is_empty() {
             self.filtered_collections = self.collections.clone();
         } else {
             let matcher = SkimMatcherV2::default();
             self.filtered_collections = self
                 .collections
                 .iter()
-                .filter(|collection| {
-                    matcher
-                        .fuzzy_match(collection, &self.filter_input.input)
-                        .is_some()
-                })
+                .filter(|collection| matcher.fuzzy_match(collection, &self.filter_text).is_some())
                 .cloned()
                 .collect();
         }
     }
 
-    pub async fn load_collections(&mut self, client: &Client) {
+    pub async fn get_client(&self) -> Client {
+        let region = "us-east-1";
+        let region_provider = RegionProviderChain::default_provider().or_else(region);
+        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+            .region(region_provider)
+            .load()
+            .await;
+
+        Client::new(&config)
+    }
+
+    pub async fn load_collections(&mut self) {
+        let client = self.get_client().await;
+
         let mut last_evaluated_table_name = None;
         self.collections.clear();
 
@@ -104,39 +101,39 @@ impl CollectionsBox {
     }
 
     fn select_none(&mut self) {
-        self.collections_list.state.select(None);
+        self.list_state.select(None);
     }
 
     fn select_next(&mut self) {
-        self.collections_list.state.select_next();
+        self.list_state.select_next();
     }
 
     fn select_previous(&mut self) {
-        self.collections_list.state.select_previous();
+        self.list_state.select_previous();
     }
 
     pub fn select_first(&mut self) {
-        self.collections_list.state.select_first();
+        self.list_state.select_first();
     }
 
     fn select_last(&mut self) {
-        self.collections_list.state.select_last();
+        self.list_state.select_last();
     }
 
     fn scroll_up(&mut self) {
-        self.collections_list.state.scroll_up_by(5);
+        self.list_state.scroll_up_by(5);
     }
 
     fn scroll_down(&mut self) {
-        self.collections_list.state.scroll_down_by(5);
+        self.list_state.scroll_down_by(5);
     }
 
     fn set_selected(&mut self) -> bool {
-        if let None = self.collections_list.state.selected() {
+        if let None = self.list_state.selected() {
             return false;
         }
 
-        let col_indx = self.collections_list.state.selected().unwrap();
+        let col_indx = self.list_state.selected().unwrap();
         let new_col_name = self.filtered_collections[col_indx].to_string();
 
         if new_col_name == self.selected_collection {
@@ -145,20 +142,74 @@ impl CollectionsBox {
 
         self.selected_collection = new_col_name;
 
-        return true;
+        true
+    }
+
+    fn reset(&mut self) {
+        self.active = false;
     }
 }
 
-impl MutableComponent for CollectionsBox {
-    fn render(&mut self, area: Rect, buf: &mut Buffer, active: bool) {
-        self.selected = active;
+impl Component for CollectionsBox {
+    fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        self.command_tx = Some(tx);
+        Ok(())
+    }
+
+    fn register_config_handler(&mut self, config: Config) -> Result<()> {
+        self.config = config;
+        Ok(())
+    }
+
+    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+        match action {
+            Action::Tick => {
+                // add any logic here that should run on every tick
+            }
+            Action::Render => {
+                // add any logic here that should run on every render
+            }
+            Action::SelectingTable => {
+                self.active = true;
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::FetchTables)?;
+            }
+            Action::FilteringTables | Action::SelectingRegion | Action::SelectingData => {
+                self.active = false
+            }
+            Action::TransmitSubmittedText(text) => {
+                self.filter_text = text.clone();
+                self.apply_filter();
+            }
+            Action::TransmitTables(tables) => {
+                self.collections = tables;
+                self.apply_filter();
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+    fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+        let [top, _] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+
+        let [left, _] =
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Min(0)]).areas(top);
+
+        let [_, middle_left, _] = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ])
+        .areas(left);
 
         let mut block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("Tables");
 
-        if self.selected {
+        if self.active {
             block = block.border_style(Style::default().fg(ACTIVE_PANE_COLOR));
         }
 
@@ -171,46 +222,16 @@ impl MutableComponent for CollectionsBox {
         let collection_list = List::new(items)
             .block(block)
             .style(Style::default().fg(Color::White))
-            .highlight_style(SELECTED_STYLE)
+            .highlight_style(LIST_ITEM_SELECTED_STYLE)
             .highlight_spacing(HighlightSpacing::Always);
 
-        StatefulWidget::render(collection_list, area, buf, &mut self.collections_list.state);
-    }
+        StatefulWidget::render(
+            collection_list,
+            middle_left,
+            frame.buffer_mut(),
+            &mut self.list_state,
+        );
 
-    fn handle_event<F>(&mut self, event: KeyEvent, send_message: F)
-    where
-        F: FnOnce(Message),
-    {
-        match event.code {
-            KeyCode::Char('/') => send_message(Message::FilterFromSelectingCollectionMode),
-            KeyCode::Char('h') | KeyCode::Left => self.select_none(),
-            KeyCode::Char('j') | KeyCode::Down => self.select_next(),
-            KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-            KeyCode::Char('g') | KeyCode::Home => self.select_first(),
-            KeyCode::Char('G') | KeyCode::End => self.select_last(),
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
-                let new_selection = self.set_selected();
-
-                if new_selection {
-                    send_message(Message::SelectCollection(self.selected_collection.clone()))
-                }
-            }
-            KeyCode::Esc => {
-                self.reset();
-            }
-            _ => {}
-        }
-
-        if event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
-            self.scroll_down();
-        }
-
-        if event == KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL) {
-            self.scroll_up();
-        }
-    }
-
-    fn reset(&mut self) {
-        self.selected = false;
+        Ok(())
     }
 }

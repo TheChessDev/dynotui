@@ -1,26 +1,31 @@
+use color_eyre::Result;
+use ratatui::prelude::*;
+use ratatui::style::palette::tailwind::{EMERALD, VIOLET};
 use std::collections::HashMap;
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::{Client, Error};
-use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::Color;
 use ratatui::widgets::{List, ListItem, ListState, StatefulWidget};
 use ratatui::{
-    buffer::Buffer,
-    crossterm::event::KeyEvent,
     layout::Rect,
     style::Style,
     widgets::{Block, BorderType, Borders},
 };
 use serde_json::{Map, Value};
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::message::Message;
+use crate::action::Action;
+use crate::config::Config;
 use crate::util::dynamodb_to_json;
 
-use super::{MutableComponent, ACTIVE_PANE_COLOR, ROW_HOVER_COLOR};
+use super::Component;
 
+#[derive(Default)]
 pub struct DataBox {
-    pub selected: bool,
+    command_tx: Option<UnboundedSender<Action>>,
+    config: Config,
+    pub active: bool,
     pub title: String,
     pub records: Vec<String>,
     pub has_more: bool,
@@ -31,15 +36,7 @@ pub struct DataBox {
 
 impl DataBox {
     pub fn new() -> Self {
-        Self {
-            selected: false,
-            title: "Data".to_string(),
-            records: Vec::new(),
-            has_more: true,
-            last_evaluated_key: None,
-            list_state: ListState::default(),
-            selected_row: String::new(),
-        }
+        Self::default()
     }
 
     pub fn set_title(&mut self, new_title: &str) {
@@ -73,11 +70,9 @@ impl DataBox {
         }
 
         // Update pagination state
-        self.last_evaluated_key = response.last_evaluated_key.map(|key| {
-            key.into_iter()
-                .map(|(k, v)| (k, v))
-                .collect::<HashMap<String, AttributeValue>>()
-        });
+        self.last_evaluated_key = response
+            .last_evaluated_key
+            .map(|key| key.into_iter().collect::<HashMap<String, AttributeValue>>());
 
         self.has_more = self.last_evaluated_key.is_some();
 
@@ -117,19 +112,60 @@ impl DataBox {
             self.selected_row = self.records[i].to_string();
         }
     }
+
+    fn reset(&mut self) {
+        self.records.clear();
+        self.has_more = true;
+        self.last_evaluated_key = None;
+        self.title = "Data".to_string();
+        self.selected_row = String::new();
+        self.list_state = ListState::default();
+
+        self.active = false;
+    }
 }
 
-impl MutableComponent for DataBox {
-    fn render(&mut self, area: Rect, buf: &mut Buffer, active: bool) {
-        self.selected = active;
+impl Component for DataBox {
+    fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        self.command_tx = Some(tx);
+        Ok(())
+    }
+
+    fn register_config_handler(&mut self, config: Config) -> Result<()> {
+        self.config = config;
+        Ok(())
+    }
+
+    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+        match action {
+            Action::Tick => {
+                // add any logic here that should run on every tick
+            }
+            Action::Render => {
+                // add any logic here that should run on every render
+            }
+            Action::SelectingData => self.active = true,
+            Action::SelectingRegion | Action::FilteringTables | Action::SelectingTable => {
+                self.active = false
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+        let [top, _] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+
+        let [_, right] =
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Min(0)]).areas(top);
 
         let mut block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title(self.title.clone());
 
-        if self.selected {
-            block = block.border_style(Style::default().fg(ACTIVE_PANE_COLOR));
+        if self.active {
+            block = block.border_style(Style::default().fg(EMERALD.c300));
         }
 
         let items: Vec<ListItem> = self
@@ -141,60 +177,10 @@ impl MutableComponent for DataBox {
         let list = List::new(items)
             .block(block)
             .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(ROW_HOVER_COLOR));
+            .highlight_style(Style::new().bg(VIOLET.c600).add_modifier(Modifier::BOLD));
 
-        StatefulWidget::render(list, area, buf, &mut self.list_state);
-    }
+        StatefulWidget::render(list, right, frame.buffer_mut(), &mut self.list_state);
 
-    fn handle_event<F>(&mut self, event: KeyEvent, send_message: F)
-    where
-        F: FnOnce(Message),
-    {
-        match event.code {
-            KeyCode::Char('h') | KeyCode::Left => self.select_none(),
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.select_next();
-                if let Some(selected) = self.list_state.selected() {
-                    if selected >= self.records.len() - 5 && self.has_more {
-                        send_message(Message::LoadMoreData);
-                    }
-                }
-            }
-            KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-            KeyCode::Char('g') | KeyCode::Home => self.select_first(),
-            KeyCode::Char('G') | KeyCode::End => {
-                self.select_last();
-                if self.has_more {
-                    send_message(Message::LoadMoreData);
-                }
-            }
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
-                self.set_selected();
-            }
-
-            KeyCode::Esc => {
-                self.reset();
-            }
-            _ => {}
-        }
-
-        if event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
-            self.scroll_down();
-        }
-
-        if event == KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL) {
-            self.scroll_up();
-        }
-    }
-
-    fn reset(&mut self) {
-        self.records.clear();
-        self.has_more = true;
-        self.last_evaluated_key = None;
-        self.title = "Data".to_string();
-        self.selected_row = String::new();
-        self.list_state = ListState::default();
-
-        self.selected = false;
+        Ok(())
     }
 }

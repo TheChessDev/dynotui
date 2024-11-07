@@ -1,11 +1,15 @@
+use color_eyre::Result;
+
+use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Color;
 use ratatui::widgets::{Paragraph, StatefulWidget, Widget};
+use ratatui::Frame;
 use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect, style::Style};
 use throbber_widgets_tui::ThrobberState;
 
-use crate::message::Message;
+use crate::action::Action;
 
-use super::MutableComponent;
+use super::Component;
 
 pub struct LoadingBox {
     pub active: bool,
@@ -39,8 +43,24 @@ impl LoadingBox {
     }
 }
 
-impl MutableComponent for LoadingBox {
-    fn render(&mut self, area: Rect, buf: &mut Buffer, _active: bool) {
+impl Component for LoadingBox {
+    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+        match action {
+            Action::Tick => self.on_tick(),
+            Action::StartLoading(message) => {
+                self.active = true;
+                self.set_message(&message);
+            }
+            Action::StopLoading => self.active = false,
+            _ => {}
+        };
+
+        Ok(None)
+    }
+
+    fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+        let [_, bottom] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+
         if self.active {
             let full = throbber_widgets_tui::Throbber::default()
                 .label(self.message.clone())
@@ -53,19 +73,11 @@ impl MutableComponent for LoadingBox {
                 .throbber_set(throbber_widgets_tui::ASCII)
                 .use_type(throbber_widgets_tui::WhichUse::Spin);
 
-            StatefulWidget::render(full, area, buf, &mut self.loading_state);
+            StatefulWidget::render(full, bottom, frame.buffer_mut(), &mut self.loading_state);
         } else {
-            Paragraph::new("not loading").render(area, buf);
+            Paragraph::new("").render(bottom, frame.buffer_mut());
         }
-    }
 
-    fn handle_event<F>(&mut self, _event: KeyEvent, _send_message: F)
-    where
-        F: FnOnce(Message),
-    {
-    }
-
-    fn reset(&mut self) {
-        self.active = false;
+        Ok(())
     }
 }

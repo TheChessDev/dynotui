@@ -1,0 +1,19 @@
+{
+  "keybindings": {
+    "View": {
+      "<q>": "Quit", // Quit the application
+      "<Ctrl-d>": "Quit", // Another way to quit
+      "<Ctrl-c>": "Quit", // Yet another way to quit
+      "<Ctrl-z>": "Suspend", // Suspend the application
+      "<t>": "SelectingTable",
+      "</>": "FilteringTables",
+      "<i>": "SelectingData",
+      "<r>": "SelectingRegion"
+    },
+    "Insert": {
+        "<esc>": "ExitInsertMode",
+        "<backspace>": "DeleteCharacter",
+        "<enter>": "SubmitText",
+    }
+  }
+}
