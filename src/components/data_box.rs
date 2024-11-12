@@ -2,13 +2,15 @@ use color_eyre::Result;
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::{EMERALD, VIOLET};
 
+use clipboard::{ClipboardContext, ClipboardProvider};
 use ratatui::style::Color;
-use ratatui::widgets::{List, ListItem, ListState, StatefulWidget};
+use ratatui::widgets::{List, ListItem, ListState, Padding, Paragraph, StatefulWidget};
 use ratatui::{
     layout::Rect,
     style::Style,
     widgets::{Block, BorderType, Borders},
 };
+use style::palette::material::INDIGO;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
@@ -28,11 +30,15 @@ pub struct DataBox {
     selected_row: String,
     collection_name: String,
     fetching: bool,
+    aprox_count: i64,
 }
 
 impl DataBox {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            title: "Data".to_string(),
+            ..Self::default()
+        }
     }
 
     pub fn set_title(&mut self, new_title: &str) {
@@ -66,6 +72,17 @@ impl DataBox {
     fn set_selected(&mut self) {
         if let Some(i) = self.list_state.selected() {
             self.selected_row = self.records[i].to_string();
+        }
+    }
+
+    fn copy_selected_row_to_clipboard(&self) {
+        if let Some(i) = self.list_state.selected() {
+            let selected_row = &self.records[i];
+
+            let mut ctx: ClipboardContext =
+                ClipboardProvider::new().expect("Failed to access clipboard");
+            ctx.set_contents(selected_row.clone())
+                .expect("Failed to copy to clipboard");
         }
     }
 }
@@ -158,13 +175,10 @@ impl Component for DataBox {
                 self.records.clear();
             }
             Action::ApproximateTableDataCount(count) => {
-                let status_text =
-                    format!("Fetched {} Items (Scanned: {})", self.records.len(), count);
-
-                self.command_tx
-                    .as_ref()
-                    .unwrap()
-                    .send(Action::UpdateStatusText(status_text))?;
+                self.aprox_count = count;
+            }
+            Action::SelectTableDataRowCopyToClipboard => {
+                self.copy_selected_row_to_clipboard();
             }
             _ => {}
         }
@@ -172,10 +186,14 @@ impl Component for DataBox {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
-        let [top, _] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+        let [top, bottom] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
 
         let [_, right] =
             Layout::horizontal([Constraint::Percentage(30), Constraint::Min(0)]).areas(top);
+
+        let [_, bottom_right] =
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Min(0)]).areas(bottom);
 
         let mut block = Block::new()
             .borders(Borders::ALL)
@@ -198,6 +216,19 @@ impl Component for DataBox {
             .highlight_style(Style::new().bg(VIOLET.c600).add_modifier(Modifier::BOLD));
 
         StatefulWidget::render(list, right, frame.buffer_mut(), &mut self.list_state);
+
+        let status_text = format!(
+            "Fetched {} Items (Scanned: {})",
+            self.records.len(),
+            self.aprox_count
+        );
+
+        if self.active {
+            Paragraph::new(status_text)
+                .block(Block::default().padding(Padding::horizontal(2)))
+                .style(Style::new().fg(INDIGO.c700))
+                .render(bottom_right, frame.buffer_mut());
+        }
 
         Ok(())
     }

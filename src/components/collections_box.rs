@@ -118,12 +118,11 @@ impl Component for CollectionsBox {
                     command_ref.send(Action::StartLoading("Fetching Tables".to_string()))?;
                 }
 
-                command_ref.send(Action::UpdateStatusText("".to_string()))?;
-
                 command_ref.send(Action::FetchTables)?;
             }
             Action::FilteringTables | Action::SelectingRegion | Action::SelectDataMode => {
-                self.active = false
+                self.active = false;
+                self.list_state.select(None);
             }
             Action::TransmitSubmittedText(text) => {
                 self.filter_text = text.clone();

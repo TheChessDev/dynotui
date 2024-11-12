@@ -12,7 +12,7 @@ use crate::{
     action::Action,
     components::{
         collections_box::CollectionsBox, data_box::DataBox, filter_input::FilterInput,
-        loading::LoadingBox, region_box::AWSRegionBox, status_text::StatusBox, Component,
+        loading::LoadingBox, region_box::AWSRegionBox, Component,
     },
     config::Config,
     data::{FetchRequest, FetchResponse},
@@ -64,7 +64,6 @@ impl App {
                 Box::new(AWSRegionBox::new(region)),
                 Box::new(FilterInput::new(filter_collections_title)),
                 Box::new(LoadingBox::new()),
-                Box::new(StatusBox::new()),
             ],
             should_quit: false,
             should_suspend: false,
@@ -95,6 +94,8 @@ impl App {
         for component in self.components.iter_mut() {
             component.init(tui.size()?)?;
         }
+
+        self.action_tx.send(Action::SelectTableMode)?;
 
         let action_tx = self.action_tx.clone();
         loop {

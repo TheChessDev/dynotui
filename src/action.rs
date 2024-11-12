@@ -37,6 +37,7 @@ pub enum Action {
     FetchMoreTableData(String),
     LoadMoreTableData(String),
     ApproximateTableDataCount(i64),
+    SelectTableDataRowCopyToClipboard,
 
     FilteringTables,
     SelectingRegion,
@@ -50,6 +51,4 @@ pub enum Action {
     TransmitTables(Vec<String>),
     StartLoading(String),
     StopLoading,
-
-    UpdateStatusText(String),
 }

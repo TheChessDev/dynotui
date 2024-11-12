@@ -37,6 +37,7 @@
             "<g>": "SelectTableDataRowFirst",
             "<Shift-g>": "SelectTableDataRowLast",
             "<l>": "SelectTableDataRow",
+            "<c>": "SelectTableDataRowCopyToClipboard",
         }
     }
 }
