@@ -2,8 +2,8 @@ use color_eyre::Result;
 use ratatui::prelude::*;
 use ratatui::style::Color;
 use ratatui::widgets::{
-    HighlightSpacing, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
-    ScrollbarState, StatefulWidget,
+    HighlightSpacing, List, ListItem, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    StatefulWidget,
 };
 use ratatui::{
     layout::Rect,
