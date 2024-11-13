@@ -123,6 +123,10 @@ impl Component for FilterInput {
                 self.command_tx
                     .as_ref()
                     .unwrap()
+                    .send(Action::TransmitSubmittedText(self.input.to_string()))?;
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
                     .send(Action::EnterInsertMode)?;
             }
             Action::SelectTableMode | Action::SelectDataMode | Action::SelectingRegion => {

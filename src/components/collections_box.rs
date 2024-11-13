@@ -104,6 +104,12 @@ impl CollectionsBox {
 
         true
     }
+
+    fn select_first_if_needed(&mut self) {
+        if self.list_state.selected().is_none() {
+            self.select_first();
+        }
+    }
 }
 
 impl Component for CollectionsBox {
@@ -141,10 +147,12 @@ impl Component for CollectionsBox {
             }
             Action::TransmitSubmittedText(text) => {
                 self.filter_text = text.clone();
+                self.select_first_if_needed();
                 self.apply_filter();
             }
             Action::TransmitTables(tables) => {
                 self.collections = tables;
+                self.select_first_if_needed();
                 self.apply_filter();
             }
             Action::SelectTablePrev => {
