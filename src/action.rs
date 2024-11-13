@@ -40,6 +40,7 @@ pub enum Action {
     SelectTableDataRowCopyToClipboard,
     FilterTableData,
     QueryTableData,
+    ExitQueryTableData,
     ExitFilterTableData,
     DeleteFilterDataCharacter,
     SubmitFilterDataText,

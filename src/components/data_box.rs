@@ -7,8 +7,8 @@ use ratatui::style::palette::tailwind::{EMERALD, VIOLET};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use ratatui::style::Color;
 use ratatui::widgets::{
-    List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    StatefulWidget,
+    Clear, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget,
 };
 use ratatui::{
     layout::Rect,
@@ -50,6 +50,7 @@ enum Mode {
     #[default]
     View,
     Filtering,
+    Querying,
 }
 
 impl DataBox {
@@ -259,6 +260,10 @@ impl Component for DataBox {
                 self.has_more = has_more;
                 self.list_state.select_first();
                 self.apply_filter();
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::StopLoading)?;
             }
             Action::SelectTableDataRowPrev => {
                 self.select_previous();
@@ -322,6 +327,11 @@ impl Component for DataBox {
                 self.has_more = has_more;
                 self.records.extend(data);
                 self.apply_filter();
+
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::StopLoading)?;
             }
             Action::FetchTableData(_) => {
                 self.records.clear();
@@ -333,7 +343,13 @@ impl Component for DataBox {
                 self.copy_selected_row_to_clipboard();
             }
             Action::FilterTableData => self.mode = Mode::Filtering,
-            Action::ExitFilterTableData => self.mode = Mode::View,
+            Action::ExitFilterTableData => {
+                self.mode = Mode::View;
+                self.filter_input.clear();
+                self.character_index = 0;
+                self.apply_filter();
+            }
+            Action::ExitQueryTableData => self.mode = Mode::View,
             Action::NewFilterDataCharacter(c) => {
                 if self.active {
                     self.enter_char(c);
@@ -349,16 +365,13 @@ impl Component for DataBox {
             }
             Action::SubmitFilterDataText => {
                 self.mode = Mode::View;
-                self.command_tx
-                    .as_ref()
-                    .unwrap()
-                    .send(Action::ExitFilterTableData)?;
             }
             Action::ClearTableDataFilter => {
                 self.filter_input.clear();
                 self.character_index = 0;
                 self.apply_filter();
             }
+            Action::QueryTableData => self.mode = Mode::Querying,
             _ => {}
         }
         Ok(None)
@@ -414,25 +427,67 @@ impl Component for DataBox {
             &mut self.scroll_bar_state,
         );
 
-        let view_mode = if self.filter_input.is_empty() {
-            "Fetched"
-        } else {
-            "Viewing"
-        };
-
-        let status_text = format!(
-            "{} {} Items (Scanned: {})",
-            view_mode,
-            self.filtered_records.len(),
-            self.aprox_count
-        );
-
         match self.mode {
             Mode::View => {
+                let view_mode = if self.filter_input.is_empty() {
+                    "Fetched"
+                } else {
+                    "Viewing"
+                };
+                let status_text = format!(
+                    "{} {} Items (Scanned: {})",
+                    view_mode,
+                    self.filtered_records.len(),
+                    self.aprox_count
+                );
+
                 Paragraph::new(status_text)
                     .block(Block::default().padding(Padding::horizontal(2)))
                     .style(Style::new().fg(INDIGO.c700))
                     .render(bottom_right, frame.buffer_mut());
+            }
+            Mode::Querying => {
+                let [_, y_middle, _] = Layout::vertical([
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(30),
+                ])
+                .areas(area);
+
+                let [_, middle, _] = Layout::horizontal([
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(30),
+                ])
+                .areas(y_middle);
+
+                let [top, bottom] =
+                    Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+                        .areas(middle);
+
+                let top_block = Block::new()
+                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(EMERALD.c300))
+                    .style(Style::new().bg(Color::Black))
+                    .title("Query Table");
+
+                let bottom_block = Block::new()
+                    .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(EMERALD.c300))
+                    .style(Style::new().bg(Color::Black));
+
+                frame.render_widget(Clear, middle);
+
+                Paragraph::new("Top")
+                    .block(top_block)
+                    .style(Style::new().bg(Color::Black))
+                    .render(top, frame.buffer_mut());
+                Paragraph::new("Bottom")
+                    .block(bottom_block)
+                    .style(Style::new().bg(Color::Black))
+                    .render(bottom, frame.buffer_mut());
             }
             Mode::Filtering => {
                 let [search_left, search_right] =

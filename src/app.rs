@@ -41,6 +41,7 @@ pub enum Mode {
     View,
     Insert,
     FilterData,
+    QueryData,
     SelectTable,
     SelectTableDataRow,
     ViewTableDataRowDetail,
@@ -115,14 +116,12 @@ impl App {
                             .send(Action::TransmitTableData(data, has_more))?;
                         self.action_tx.send(Action::SelectDataMode)?;
                         self.action_tx.send(Action::Render)?;
-                        self.action_tx.send(Action::StopLoading)?;
                     }
                     FetchResponse::NextBatchTableData(data, has_more, last_evaluated_key) => {
                         self.last_evaluated_key = last_evaluated_key;
                         self.action_tx
                             .send(Action::TransmitNextBatcTableData(data, has_more))?;
                         self.action_tx.send(Action::Render)?;
-                        self.action_tx.send(Action::StopLoading)?;
                     }
                     FetchResponse::ApproximateTableDataCount(count) => {
                         self.action_tx
@@ -244,11 +243,14 @@ impl App {
                 Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
                 Action::Render => self.render(tui)?,
                 Action::FilterTableData => self.mode = Mode::FilterData,
-                Action::ExitFilterTableData => self.mode = Mode::SelectTableDataRow,
+                Action::QueryTableData => self.mode = Mode::QueryData,
                 Action::EnterInsertMode => self.mode = Mode::Insert,
                 Action::ExitInsertMode => self.mode = Mode::View,
                 Action::SelectTableMode => self.mode = Mode::SelectTable,
-                Action::SelectDataMode => self.mode = Mode::SelectTableDataRow,
+                Action::SelectDataMode
+                | Action::ExitFilterTableData
+                | Action::ExitQueryTableData
+                | Action::SubmitFilterDataText => self.mode = Mode::SelectTableDataRow,
                 Action::ViewTableDataRowDetail => self.mode = Mode::ViewTableDataRowDetail,
                 Action::FetchTables => {
                     self.fetch_tx.try_send(FetchRequest::Tables)?;

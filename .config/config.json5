@@ -42,6 +42,7 @@
             "<enter>": "SelectTableDataRow",
             "<c>": "SelectTableDataRowCopyToClipboard",
             "<f>": "FilterTableData",
+            "<s>": "QueryTableData",
             "<esc>": "ClearTableDataFilter",
         },
         "ViewTableDataRowDetail": {
@@ -58,10 +59,18 @@
             "<c>": "ViewTableDataRowCopyToClipboard",
         },
         "FilterData": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
             "<Ctrl-z>": "Suspend", // Suspend the application
             "<esc>": "ExitFilterTableData",
             "<backspace>": "DeleteFilterDataCharacter",
             "<enter>": "SubmitFilterDataText"
+        },
+        "QueryData": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<Ctrl-z>": "Suspend", // Suspend the application
+            "<esc>": "ExitQueryTableData",
         },
     }
 }
