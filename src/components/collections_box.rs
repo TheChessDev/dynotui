@@ -1,7 +1,10 @@
 use color_eyre::Result;
 use ratatui::prelude::*;
 use ratatui::style::Color;
-use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, StatefulWidget};
+use ratatui::widgets::{
+    HighlightSpacing, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget,
+};
 use ratatui::{
     layout::Rect,
     style::Style,
@@ -10,6 +13,7 @@ use ratatui::{
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use symbols::scrollbar;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
@@ -28,6 +32,7 @@ pub struct CollectionsBox {
     list_state: ListState,
     selected_collection: String,
     filter_text: String,
+    scroll_bar_state: ScrollbarState,
 }
 
 impl CollectionsBox {
@@ -49,28 +54,38 @@ impl CollectionsBox {
         }
     }
 
+    fn update_scroll_pos(&mut self, pos: usize) {
+        self.scroll_bar_state = self.scroll_bar_state.position(pos);
+    }
+
     fn select_next(&mut self) {
         self.list_state.select_next();
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     fn select_previous(&mut self) {
         self.list_state.select_previous();
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     pub fn select_first(&mut self) {
         self.list_state.select_first();
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     fn select_last(&mut self) {
         self.list_state.select_last();
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     fn scroll_up(&mut self) {
         self.list_state.scroll_up_by(5);
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     fn scroll_down(&mut self) {
         self.list_state.scroll_down_by(5);
+        self.update_scroll_pos(self.list_state.selected().unwrap());
     }
 
     fn set_selected(&mut self) -> bool {
@@ -194,6 +209,14 @@ impl Component for CollectionsBox {
             .map(|name| ListItem::new(name.clone()))
             .collect();
 
+        self.scroll_bar_state = self.scroll_bar_state.content_length(items.len());
+
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+
         let collection_list = List::new(items)
             .block(block)
             .style(Style::default().fg(Color::White))
@@ -205,6 +228,16 @@ impl Component for CollectionsBox {
             middle_left,
             frame.buffer_mut(),
             &mut self.list_state,
+        );
+
+        StatefulWidget::render(
+            scrollbar,
+            middle_left.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            frame.buffer_mut(),
+            &mut self.scroll_bar_state,
         );
 
         Ok(())
