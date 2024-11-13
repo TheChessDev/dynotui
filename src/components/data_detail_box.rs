@@ -1,3 +1,4 @@
+use clipboard::{ClipboardContext, ClipboardProvider};
 use color_eyre::Result;
 use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
@@ -136,8 +137,15 @@ impl DataDetailBox {
                 // For nested objects/arrays, we defer to `json_to_lines` to handle them properly.
                 vec![]
             }
-            _ => vec![Span::raw(value.to_string())],
         }
+    }
+
+    fn copy_selected_row_to_clipboard(&self) {
+        let mut ctx: ClipboardContext =
+            ClipboardProvider::new().expect("Failed to access clipboard");
+
+        ctx.set_contents(self.row.clone())
+            .expect("Failed to copy to clipboard");
     }
 }
 
@@ -207,6 +215,9 @@ impl Component for DataDetailBox {
                 self.horizontal_scroll_state = self
                     .horizontal_scroll_state
                     .position(self.horizontal_scroll);
+            }
+            Action::ViewTableDataRowCopyToClipboard => {
+                self.copy_selected_row_to_clipboard();
             }
             _ => {}
         }

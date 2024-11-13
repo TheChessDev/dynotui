@@ -41,6 +41,8 @@
             "<Shift-g>": "SelectTableDataRowLast",
             "<enter>": "SelectTableDataRow",
             "<c>": "SelectTableDataRowCopyToClipboard",
+            "<f>": "FilterTableData",
+            "<esc>": "ClearTableDataFilter",
         },
         "ViewTableDataRowDetail": {
             "<q>": "Quit", // Quit the application
@@ -53,6 +55,13 @@
             "<Ctrl-u>": "ViewTableDataRowScrollUp",
             "<h>": "ViewTableDataRowScrollLeft",
             "<l>": "ViewTableDataRowScrollRight",
-        }
+            "<c>": "ViewTableDataRowCopyToClipboard",
+        },
+        "FilterData": {
+            "<Ctrl-z>": "Suspend", // Suspend the application
+            "<esc>": "ExitFilterTableData",
+            "<backspace>": "DeleteFilterDataCharacter",
+            "<enter>": "SubmitFilterDataText"
+        },
     }
 }

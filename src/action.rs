@@ -38,6 +38,13 @@ pub enum Action {
     LoadMoreTableData(String),
     ApproximateTableDataCount(i64),
     SelectTableDataRowCopyToClipboard,
+    FilterTableData,
+    QueryTableData,
+    ExitFilterTableData,
+    DeleteFilterDataCharacter,
+    SubmitFilterDataText,
+    NewFilterDataCharacter(char),
+    ClearTableDataFilter,
 
     FilteringTables,
     SelectingRegion,
@@ -61,4 +68,5 @@ pub enum Action {
     ViewTableDataRowScrollUp,
     ViewTableDataRowScrollNext,
     ViewTableDataRowScrollPrev,
+    ViewTableDataRowCopyToClipboard,
 }

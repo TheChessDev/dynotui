@@ -40,6 +40,7 @@ pub enum Mode {
     #[default]
     View,
     Insert,
+    FilterData,
     SelectTable,
     SelectTableDataRow,
     ViewTableDataRowDetail,
@@ -171,43 +172,60 @@ impl App {
     fn handle_key_event(&mut self, key: KeyEvent) -> Result<()> {
         let action_tx = self.action_tx.clone();
 
-        if matches!(&self.mode, Mode::Insert) {
-            let Some(keymap) = self.config.keybindings.get(&self.mode) else {
-                return Ok(());
-            };
+        match self.mode {
+            Mode::FilterData => {
+                let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+                    return Ok(());
+                };
 
-            if let Some(action) = keymap.get(&vec![key]) {
-                info!("Got action: {action:?}");
-                action_tx.send(action.clone())?;
-            } else if let Some(character) = self.get_char_from_key_event(key) {
-                action_tx.send(Action::NewCharacter(character))?;
-            }
-
-            return Ok(());
-        }
-
-        let Some(keymap) = self.config.keybindings.get(&self.mode) else {
-            return Ok(());
-        };
-
-        match keymap.get(&vec![key]) {
-            Some(action) => {
-                info!("Got action: {action:?}");
-                action_tx.send(action.clone())?;
-            }
-            _ => {
-                // If the key was not handled as a single key action,
-                // then consider it for multi-key combinations.
-                self.last_tick_key_events.push(key);
-
-                // Check for multi-key combinations
-                if let Some(action) = keymap.get(&self.last_tick_key_events) {
+                if let Some(action) = keymap.get(&vec![key]) {
                     info!("Got action: {action:?}");
                     action_tx.send(action.clone())?;
+                } else if let Some(character) = self.get_char_from_key_event(key) {
+                    action_tx.send(Action::NewFilterDataCharacter(character))?;
                 }
+
+                Ok(())
+            }
+            Mode::Insert => {
+                let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+                    return Ok(());
+                };
+
+                if let Some(action) = keymap.get(&vec![key]) {
+                    info!("Got action: {action:?}");
+                    action_tx.send(action.clone())?;
+                } else if let Some(character) = self.get_char_from_key_event(key) {
+                    action_tx.send(Action::NewCharacter(character))?;
+                }
+
+                Ok(())
+            }
+            _ => {
+                let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+                    return Ok(());
+                };
+
+                match keymap.get(&vec![key]) {
+                    Some(action) => {
+                        info!("Got action: {action:?}");
+                        action_tx.send(action.clone())?;
+                    }
+                    _ => {
+                        // If the key was not handled as a single key action,
+                        // then consider it for multi-key combinations.
+                        self.last_tick_key_events.push(key);
+
+                        // Check for multi-key combinations
+                        if let Some(action) = keymap.get(&self.last_tick_key_events) {
+                            info!("Got action: {action:?}");
+                            action_tx.send(action.clone())?;
+                        }
+                    }
+                }
+                Ok(())
             }
         }
-        Ok(())
     }
 
     fn handle_actions(&mut self, tui: &mut Tui) -> Result<()> {
@@ -225,6 +243,8 @@ impl App {
                 Action::ClearScreen => tui.terminal.clear()?,
                 Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
                 Action::Render => self.render(tui)?,
+                Action::FilterTableData => self.mode = Mode::FilterData,
+                Action::ExitFilterTableData => self.mode = Mode::SelectTableDataRow,
                 Action::EnterInsertMode => self.mode = Mode::Insert,
                 Action::ExitInsertMode => self.mode = Mode::View,
                 Action::SelectTableMode => self.mode = Mode::SelectTable,
