@@ -141,7 +141,10 @@ impl Component for CollectionsBox {
 
                 command_ref.send(Action::FetchTables)?;
             }
-            Action::FilteringTables | Action::SelectingRegion | Action::SelectDataMode => {
+            Action::FilteringTables
+            | Action::SelectingRegion
+            | Action::SelectDataMode
+            | Action::ViewTableDataRowDetail => {
                 self.active = false;
                 self.list_state.select(None);
             }

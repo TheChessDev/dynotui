@@ -129,9 +129,10 @@ impl Component for FilterInput {
                     .unwrap()
                     .send(Action::EnterInsertMode)?;
             }
-            Action::SelectTableMode | Action::SelectDataMode | Action::SelectingRegion => {
-                self.active = false
-            }
+            Action::SelectTableMode
+            | Action::SelectDataMode
+            | Action::SelectingRegion
+            | Action::ViewTableDataRowDetail => self.active = false,
             Action::NewCharacter(c) => {
                 if self.active {
                     // self.input.push(c);

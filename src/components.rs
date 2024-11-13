@@ -10,6 +10,7 @@ use crate::{action::Action, config::Config, tui::Event};
 
 pub mod collections_box;
 pub mod data_box;
+pub mod data_detail_box;
 pub mod filter_input;
 pub mod loading;
 pub mod region_box;

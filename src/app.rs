@@ -11,8 +11,8 @@ use tracing::{debug, info};
 use crate::{
     action::Action,
     components::{
-        collections_box::CollectionsBox, data_box::DataBox, filter_input::FilterInput,
-        loading::LoadingBox, region_box::AWSRegionBox, Component,
+        collections_box::CollectionsBox, data_box::DataBox, data_detail_box::DataDetailBox,
+        filter_input::FilterInput, loading::LoadingBox, region_box::AWSRegionBox, Component,
     },
     config::Config,
     data::{FetchRequest, FetchResponse},
@@ -42,6 +42,7 @@ pub enum Mode {
     Insert,
     SelectTable,
     SelectTableDataRow,
+    ViewTableDataRowDetail,
 }
 
 impl App {
@@ -64,6 +65,7 @@ impl App {
                 Box::new(AWSRegionBox::new(region)),
                 Box::new(FilterInput::new(filter_collections_title)),
                 Box::new(LoadingBox::new()),
+                Box::new(DataDetailBox::new()),
             ],
             should_quit: false,
             should_suspend: false,
@@ -227,6 +229,7 @@ impl App {
                 Action::ExitInsertMode => self.mode = Mode::View,
                 Action::SelectTableMode => self.mode = Mode::SelectTable,
                 Action::SelectDataMode => self.mode = Mode::SelectTableDataRow,
+                Action::ViewTableDataRowDetail => self.mode = Mode::ViewTableDataRowDetail,
                 Action::FetchTables => {
                     self.fetch_tx.try_send(FetchRequest::Tables)?;
                 }

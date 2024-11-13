@@ -51,4 +51,14 @@ pub enum Action {
     TransmitTables(Vec<String>),
     StartLoading(String),
     StopLoading,
+
+    ViewTableDataRowDetail,
+    TransmitSelectedTableDataRow(String),
+    ExitViewTableDataRowMode,
+    ViewTableDataRowScrollLeft,
+    ViewTableDataRowScrollRight,
+    ViewTableDataRowScrollDown,
+    ViewTableDataRowScrollUp,
+    ViewTableDataRowScrollNext,
+    ViewTableDataRowScrollPrev,
 }

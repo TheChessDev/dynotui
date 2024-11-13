@@ -107,9 +107,10 @@ impl Component for DataBox {
                 // add any logic here that should run on every render
             }
             Action::SelectDataMode => self.active = true,
-            Action::SelectingRegion | Action::FilteringTables | Action::SelectTableMode => {
-                self.active = false
-            }
+            Action::SelectingRegion
+            | Action::FilteringTables
+            | Action::SelectTableMode
+            | Action::ViewTableDataRowDetail => self.active = false,
             Action::TransmitSelectedTable(table) => {
                 self.set_title(&table);
                 self.collection_name = table.clone();
@@ -117,6 +118,7 @@ impl Component for DataBox {
             Action::TransmitTableData(data, has_more) => {
                 self.records = data;
                 self.has_more = has_more;
+                self.list_state.select_first();
             }
             Action::SelectTableDataRowPrev => {
                 self.select_previous();
@@ -165,6 +167,15 @@ impl Component for DataBox {
             }
             Action::SelectTableDataRow => {
                 self.set_selected();
+
+                if !self.selected_row.is_empty() {
+                    let command_tx = self.command_tx.as_ref().unwrap();
+
+                    command_tx.send(Action::ViewTableDataRowDetail)?;
+                    command_tx.send(Action::TransmitSelectedTableDataRow(
+                        self.selected_row.clone(),
+                    ))?;
+                }
             }
             Action::TransmitNextBatcTableData(data, has_more) => {
                 self.fetching = false;

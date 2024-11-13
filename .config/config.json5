@@ -9,6 +9,7 @@
             "<i>": "SelectDataMode"
         },
         "Insert": {
+            "<Ctrl-z>": "Suspend", // Suspend the application
             "<esc>": "ExitInsertMode",
             "<backspace>": "DeleteCharacter",
             "<enter>": "SubmitText"
@@ -16,6 +17,7 @@
         "SelectTable": {
             "<q>": "Quit", // Quit the application
             "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<Ctrl-z>": "Suspend", // Suspend the application
             "<j>": "SelectTableNext",
             "<k>": "SelectTablePrev",
             "</>": "FilteringTables",
@@ -28,6 +30,7 @@
         "SelectTableDataRow": {
             "<q>": "Quit", // Quit the application
             "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<Ctrl-z>": "Suspend", // Suspend the application
             "<t>": "SelectTableMode",
             "</>": "FilteringTables",
             "<j>": "SelectTableDataRowNext",
@@ -36,8 +39,20 @@
             "<Ctrl-u>": "SelectTableDataRowScrollUp", // Another way to quit
             "<g>": "SelectTableDataRowFirst",
             "<Shift-g>": "SelectTableDataRowLast",
-            "<l>": "SelectTableDataRow",
+            "<enter>": "SelectTableDataRow",
             "<c>": "SelectTableDataRowCopyToClipboard",
+        },
+        "ViewTableDataRowDetail": {
+            "<q>": "Quit", // Quit the application
+            "<Ctrl-c>": "Quit", // Yet another way to quit
+            "<Ctrl-z>": "Suspend", // Suspend the application
+            "<esc>": "ExitViewTableDataRowMode",
+            "<j>": "ViewTableDataRowScrollNext",
+            "<k>": "ViewTableDataRowScrollPrev",
+            "<Ctrl-d>": "ViewTableDataRowScrollDown",
+            "<Ctrl-u>": "ViewTableDataRowScrollUp",
+            "<h>": "ViewTableDataRowScrollLeft",
+            "<l>": "ViewTableDataRowScrollRight",
         }
     }
 }
