@@ -15,6 +15,7 @@ use ratatui::{
     style::Style,
     widgets::{Block, BorderType, Borders},
 };
+use serde_json::Value;
 use style::palette::material::INDIGO;
 use symbols::scrollbar;
 use tokio::sync::mpsc::UnboundedSender;
@@ -61,16 +62,56 @@ impl DataBox {
 
     pub fn apply_filter(&mut self) {
         if self.filter_input.is_empty() {
+            // If no filter input, show all records
             self.filtered_records = self.records.clone();
         } else {
             let matcher = SkimMatcherV2::default();
+            let keywords: Vec<&str> = self.filter_input.split_whitespace().collect();
 
             self.filtered_records = self
                 .records
                 .iter()
-                .filter(|row| matcher.fuzzy_match(row, &self.filter_input).is_some())
+                .filter(|row| {
+                    // Parse each record as JSON
+                    if let Ok(parsed_row) = serde_json::from_str::<Value>(row) {
+                        // Check if all keywords are found in the JSON object
+                        keywords.iter().all(|keyword| {
+                            self.keyword_matches_json(keyword, &parsed_row, &matcher)
+                        })
+                    } else {
+                        false
+                    }
+                })
                 .cloned()
                 .collect();
+        }
+    }
+
+    // Helper function to check if a keyword matches any field or value in the JSON
+    fn keyword_matches_json(&self, keyword: &str, json: &Value, matcher: &SkimMatcherV2) -> bool {
+        match json {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    // Check if the keyword matches the field name
+                    if matcher.fuzzy_match(key, keyword).is_some() {
+                        return true;
+                    }
+                    // Recursively check values in case of nested objects/arrays
+                    if self.keyword_matches_json(keyword, value, matcher) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Value::Array(arr) => {
+                // Check each item in the array
+                arr.iter()
+                    .any(|value| self.keyword_matches_json(keyword, value, matcher))
+            }
+            Value::String(s) => matcher.fuzzy_match(s, keyword).is_some(),
+            Value::Number(n) => matcher.fuzzy_match(&n.to_string(), keyword).is_some(),
+            Value::Bool(b) => matcher.fuzzy_match(&b.to_string(), keyword).is_some(),
+            Value::Null => false,
         }
     }
 
@@ -315,6 +356,7 @@ impl Component for DataBox {
             }
             Action::ClearTableDataFilter => {
                 self.filter_input.clear();
+                self.character_index = 0;
                 self.apply_filter();
             }
             _ => {}
