@@ -53,6 +53,7 @@ pub enum Action {
     SubmitQueryDataText,
     ToggleQueryInputFocus,
     GetTableQueryDataByPk(String, String, String),
+    GetTableQueryDataByPkSk(String, String, String, String, String),
 
     FilteringTables,
     SelectingRegion,

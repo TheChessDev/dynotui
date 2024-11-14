@@ -17,6 +17,7 @@ pub enum FetchRequest {
     GetApproximateItemCount(String),
     DescribeTable(String),
     QueryTableByPk(String, String, String),
+    QueryTableByPkSk(String, String, String, String, String),
 }
 
 #[derive(Debug)]
@@ -26,7 +27,6 @@ pub enum FetchResponse {
     NextBatchTableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
     ApproximateTableDataCount(i64),
     TableDescription((Option<String>, Option<String>)),
-    QueryResult(Vec<String>),
 }
 
 pub async fn get_client() -> Client {
@@ -85,7 +85,6 @@ pub async fn load_data(
 
     let mut request = client.scan().table_name(collection_name).limit(100);
 
-    // Add `ExclusiveStartKey` if continuing from a previous batch
     if let Some(ref key) = last_evaluated_key {
         for (k, v) in key.iter() {
             request = request.exclusive_start_key(k.clone(), v.clone());
@@ -94,23 +93,12 @@ pub async fn load_data(
 
     let response = request.send().await?;
 
-    // Collect records in JSON string format
     let records = if let Some(items) = response.items {
-        items
-            .into_iter()
-            .map(|item| {
-                let mut json_item = Map::new();
-                for (k, v) in item {
-                    json_item.insert(k, dynamodb_to_json(v));
-                }
-                Value::Object(json_item).to_string()
-            })
-            .collect()
+        hashmap_to_json(items)
     } else {
         Vec::new()
     };
 
-    // Update pagination state
     let new_last_evaluated_key = response
         .last_evaluated_key
         .map(|key| key.into_iter().collect::<HashMap<String, AttributeValue>>());
@@ -139,7 +127,6 @@ pub async fn describe_table_key_schema(
 ) -> Result<(Option<String>, Option<String>), Error> {
     let client = get_client().await;
 
-    // Call describe_table to get table metadata
     let table_info = client
         .describe_table()
         .table_name(table_name)
@@ -157,7 +144,6 @@ pub async fn describe_table_key_schema(
     let mut partition_key = None;
     let mut sort_key = None;
 
-    // Iterate through key schema to find partition and sort keys
     for key_element in key_schema {
         match key_element.key_type() {
             KeyType::Hash => partition_key = Some(key_element.attribute_name().to_string()),
@@ -176,7 +162,6 @@ pub async fn query_by_partition_key(
 ) -> Result<Vec<String>, Error> {
     let client = get_client().await;
 
-    // Set up the query parameters
     let response = client
         .query()
         .table_name(table_name)
@@ -186,21 +171,53 @@ pub async fn query_by_partition_key(
         .send()
         .await?;
 
-    // Collect and return the items
-    if let Some(items) = response.items {
-        let records = items
-            .into_iter()
-            .map(|item| {
-                let mut json_item = Map::new();
-                for (k, v) in item {
-                    json_item.insert(k, dynamodb_to_json(v));
-                }
-                Value::Object(json_item).to_string()
-            })
-            .collect();
-
-        Ok(records)
+    let records = if let Some(items) = response.items {
+        hashmap_to_json(items)
     } else {
-        Ok(vec![]) // Return an empty vector if no items found
-    }
+        Vec::new()
+    };
+
+    Ok(records)
+}
+
+pub async fn query_by_partition_and_sort_key(
+    table_name: &str,
+    partition_key_name: &str,
+    partition_key_value: &str,
+    sort_key_name: &str,
+    sort_key_value: &str,
+) -> Result<Vec<String>, Error> {
+    let client = get_client().await;
+
+    let response = client
+        .query()
+        .table_name(table_name)
+        .key_condition_expression("#pk = :pkval AND #sk = :skval")
+        .expression_attribute_names("#pk", partition_key_name)
+        .expression_attribute_names("#sk", sort_key_name)
+        .expression_attribute_values(":pkval", AttributeValue::S(partition_key_value.to_string()))
+        .expression_attribute_values(":skval", AttributeValue::S(sort_key_value.to_string()))
+        .send()
+        .await?;
+
+    let records = if let Some(items) = response.items {
+        hashmap_to_json(items)
+    } else {
+        Vec::new()
+    };
+
+    Ok(records)
+}
+
+fn hashmap_to_json(items: Vec<HashMap<String, AttributeValue>>) -> Vec<String> {
+    items
+        .into_iter()
+        .map(|item| {
+            let mut json_item = Map::new();
+            for (k, v) in item {
+                json_item.insert(k, dynamodb_to_json(v));
+            }
+            Value::Object(json_item).to_string()
+        })
+        .collect()
 }

@@ -130,12 +130,6 @@ impl App {
                     FetchResponse::TableDescription(description) => self
                         .action_tx
                         .send(Action::TransmitTableDescription(description))?,
-                    FetchResponse::QueryResult(data) => {
-                        self.last_evaluated_key = None;
-                        self.action_tx
-                            .send(Action::TransmitTableData(data, false))?;
-                        self.action_tx.send(Action::Render)?;
-                    }
                 }
             }
 
@@ -305,6 +299,21 @@ impl App {
                         table_name.to_string(),
                         pk.to_string(),
                         pk_value.to_string(),
+                    ))?;
+                }
+                Action::GetTableQueryDataByPkSk(
+                    ref table_name,
+                    ref pk,
+                    ref pk_value,
+                    ref sk,
+                    ref sk_value,
+                ) => {
+                    self.fetch_tx.try_send(FetchRequest::QueryTableByPkSk(
+                        table_name.to_string(),
+                        pk.to_string(),
+                        pk_value.to_string(),
+                        sk.to_string(),
+                        sk_value.to_string(),
                     ))?;
                 }
                 _ => {}

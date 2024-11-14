@@ -750,7 +750,16 @@ impl Component for DataBox {
             }
             Action::SubmitQueryDataText => {
                 let command_tx = self.command_tx.as_ref().unwrap();
-                if !self.partition_key_value.is_empty() {
+                if !self.partition_key_value.is_empty() && !self.sort_key_value.is_empty() {
+                    command_tx.send(Action::StartLoading("Querying Data".to_string()))?;
+                    command_tx.send(Action::GetTableQueryDataByPkSk(
+                        self.collection_name.clone(),
+                        self.partition_key.as_ref().unwrap().clone(),
+                        self.partition_key_value.clone(),
+                        self.sort_key.as_ref().unwrap().clone(),
+                        self.sort_key_value.clone(),
+                    ))?;
+                } else if !self.partition_key_value.is_empty() {
                     command_tx.send(Action::StartLoading("Querying Data".to_string()))?;
                     command_tx.send(Action::GetTableQueryDataByPk(
                         self.collection_name.clone(),

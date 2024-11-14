@@ -3,7 +3,7 @@ use cli::Cli;
 use color_eyre::Result;
 use data::{
     describe_table_key_schema, get_approximate_item_count, load_collections, load_data,
-    query_by_partition_key, FetchRequest, FetchResponse,
+    query_by_partition_and_sort_key, query_by_partition_key, FetchRequest, FetchResponse,
 };
 use tokio::{sync::mpsc, task};
 
@@ -84,6 +84,16 @@ async fn main() -> Result<()> {
                 }
                 FetchRequest::QueryTableByPk(table_name, pk, pk_value) => {
                     if let Ok(data) = query_by_partition_key(&table_name, &pk, &pk_value).await {
+                        let _ = response_tx
+                            .send(FetchResponse::TableData(data, false, None))
+                            .await;
+                    }
+                }
+                FetchRequest::QueryTableByPkSk(table_name, pk, pk_value, sk, sk_value) => {
+                    if let Ok(data) =
+                        query_by_partition_and_sort_key(&table_name, &pk, &pk_value, &sk, &sk_value)
+                            .await
+                    {
                         let _ = response_tx
                             .send(FetchResponse::TableData(data, false, None))
                             .await;
