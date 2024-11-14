@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use aws_sdk_dynamodb::{types::AttributeValue, Client, Error};
+use aws_sdk_dynamodb::{
+    types::{AttributeValue, KeyType},
+    Client, Error,
+};
 use serde_json::{Map, Value};
 
 use crate::util::dynamodb_to_json;
@@ -12,6 +15,8 @@ pub enum FetchRequest {
     TableData(String),
     NextBatchTableData(String, Option<HashMap<String, AttributeValue>>),
     GetApproximateItemCount(String),
+    DescribeTable(String),
+    QueryTableByPk(String, String, String),
 }
 
 #[derive(Debug)]
@@ -20,6 +25,8 @@ pub enum FetchResponse {
     TableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
     NextBatchTableData(Vec<String>, bool, Option<HashMap<String, AttributeValue>>),
     ApproximateTableDataCount(i64),
+    TableDescription((Option<String>, Option<String>)),
+    QueryResult(Vec<String>),
 }
 
 pub async fn get_client() -> Client {
@@ -124,5 +131,76 @@ pub async fn get_approximate_item_count(table_name: &str) -> Result<i64, Error> 
         Ok(table.item_count.unwrap_or(0))
     } else {
         Ok(0)
+    }
+}
+
+pub async fn describe_table_key_schema(
+    table_name: &str,
+) -> Result<(Option<String>, Option<String>), Error> {
+    let client = get_client().await;
+
+    // Call describe_table to get table metadata
+    let table_info = client
+        .describe_table()
+        .table_name(table_name)
+        .send()
+        .await?;
+
+    let table = table_info.table();
+
+    if table.is_none() {
+        return Ok((None, None));
+    }
+
+    let key_schema = table.unwrap().key_schema();
+
+    let mut partition_key = None;
+    let mut sort_key = None;
+
+    // Iterate through key schema to find partition and sort keys
+    for key_element in key_schema {
+        match key_element.key_type() {
+            KeyType::Hash => partition_key = Some(key_element.attribute_name().to_string()),
+            KeyType::Range => sort_key = Some(key_element.attribute_name().to_string()),
+            _ => (),
+        }
+    }
+
+    Ok((partition_key, sort_key))
+}
+
+pub async fn query_by_partition_key(
+    table_name: &str,
+    partition_key_name: &str,
+    partition_key_value: &str,
+) -> Result<Vec<String>, Error> {
+    let client = get_client().await;
+
+    // Set up the query parameters
+    let response = client
+        .query()
+        .table_name(table_name)
+        .key_condition_expression("#pk = :pkval")
+        .expression_attribute_names("#pk", partition_key_name)
+        .expression_attribute_values(":pkval", AttributeValue::S(partition_key_value.to_string()))
+        .send()
+        .await?;
+
+    // Collect and return the items
+    if let Some(items) = response.items {
+        let records = items
+            .into_iter()
+            .map(|item| {
+                let mut json_item = Map::new();
+                for (k, v) in item {
+                    json_item.insert(k, dynamodb_to_json(v));
+                }
+                Value::Object(json_item).to_string()
+            })
+            .collect();
+
+        Ok(records)
+    } else {
+        Ok(vec![]) // Return an empty vector if no items found
     }
 }

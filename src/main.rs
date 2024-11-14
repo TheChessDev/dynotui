@@ -1,7 +1,10 @@
 use clap::Parser;
 use cli::Cli;
 use color_eyre::Result;
-use data::{get_approximate_item_count, load_collections, load_data, FetchRequest, FetchResponse};
+use data::{
+    describe_table_key_schema, get_approximate_item_count, load_collections, load_data,
+    query_by_partition_key, FetchRequest, FetchResponse,
+};
 use tokio::{sync::mpsc, task};
 
 use crate::app::App;
@@ -65,6 +68,24 @@ async fn main() -> Result<()> {
                     } else {
                         let _ = response_tx
                             .send(FetchResponse::ApproximateTableDataCount(0))
+                            .await;
+                    }
+                }
+                FetchRequest::DescribeTable(table_name) => {
+                    if let Ok(result) = describe_table_key_schema(&table_name).await {
+                        let _ = response_tx
+                            .send(FetchResponse::TableDescription(result))
+                            .await;
+                    } else {
+                        let _ = response_tx
+                            .send(FetchResponse::TableDescription((None, None)))
+                            .await;
+                    }
+                }
+                FetchRequest::QueryTableByPk(table_name, pk, pk_value) => {
+                    if let Ok(data) = query_by_partition_key(&table_name, &pk, &pk_value).await {
+                        let _ = response_tx
+                            .send(FetchResponse::TableData(data, false, None))
                             .await;
                     }
                 }

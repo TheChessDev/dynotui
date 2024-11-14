@@ -1,4 +1,5 @@
 use color_eyre::Result;
+use colored_json::Paint;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use ratatui::prelude::*;
@@ -8,7 +9,7 @@ use clipboard::{ClipboardContext, ClipboardProvider};
 use ratatui::style::Color;
 use ratatui::widgets::{
     Clear, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
-    ScrollbarState, StatefulWidget,
+    ScrollbarState, StatefulWidget, Wrap,
 };
 use ratatui::{
     layout::Rect,
@@ -43,6 +44,13 @@ pub struct DataBox {
     mode: Mode,
     filter_input: String,
     character_index: usize,
+    sort_key_index: usize,
+    partition_key_index: usize,
+    partition_key: Option<String>,
+    sort_key: Option<String>,
+    partition_key_value: String,
+    sort_key_value: String,
+    query_focus: QueryFocus,
 }
 
 #[derive(Default)]
@@ -51,6 +59,13 @@ enum Mode {
     View,
     Filtering,
     Querying,
+}
+
+#[derive(Default)]
+enum QueryFocus {
+    #[default]
+    PartitionKey,
+    SortKey,
 }
 
 impl DataBox {
@@ -172,35 +187,67 @@ impl DataBox {
     }
 
     fn enter_char(&mut self, new_char: char) {
-        let index = self.byte_index();
+        let index = self.byte_index(&self.filter_input, self.character_index);
         self.filter_input.insert(index, new_char);
         self.move_cursor_right();
+    }
+
+    fn enter_sort_key_char(&mut self, new_char: char) {
+        let index = self.byte_index(&self.sort_key_value, self.sort_key_index);
+        self.sort_key_value.insert(index, new_char);
+        self.move_sort_key_cursor_right();
+    }
+
+    fn enter_partition_key_char(&mut self, new_char: char) {
+        let index = self.byte_index(&self.partition_key_value, self.partition_key_index);
+        self.partition_key_value.insert(index, new_char);
+        self.move_partition_key_cursor_right();
     }
 
     /// Returns the byte index based on the character position.
     ///
     /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
     /// the byte index based on the index of the character.
-    fn byte_index(&self) -> usize {
-        self.filter_input
+    fn byte_index(&self, input: &str, character_index: usize) -> usize {
+        input
             .char_indices()
             .map(|(i, _)| i)
-            .nth(self.character_index)
-            .unwrap_or(self.filter_input.len())
+            .nth(character_index)
+            .unwrap_or(input.len())
     }
 
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
-        self.character_index = self.clamp_cursor(cursor_moved_left);
+        self.character_index = self.clamp_cursor(cursor_moved_left, &self.filter_input);
     }
 
     fn move_cursor_right(&mut self) {
         let cursor_moved_right = self.character_index.saturating_add(1);
-        self.character_index = self.clamp_cursor(cursor_moved_right);
+        self.character_index = self.clamp_cursor(cursor_moved_right, &self.filter_input);
     }
 
-    fn clamp_cursor(&self, new_cursor_pos: usize) -> usize {
-        new_cursor_pos.clamp(0, self.filter_input.chars().count())
+    fn move_sort_key_cursor_left(&mut self) {
+        let cursor_moved_left = self.sort_key_index.saturating_sub(1);
+        self.sort_key_index = self.clamp_cursor(cursor_moved_left, &self.sort_key_value);
+    }
+
+    fn move_sort_key_cursor_right(&mut self) {
+        let cursor_moved_right = self.sort_key_index.saturating_add(1);
+        self.sort_key_index = self.clamp_cursor(cursor_moved_right, &self.sort_key_value);
+    }
+
+    fn move_partition_key_cursor_left(&mut self) {
+        let cursor_moved_left = self.partition_key_index.saturating_sub(1);
+        self.partition_key_index = self.clamp_cursor(cursor_moved_left, &self.partition_key_value);
+    }
+
+    fn move_partition_key_cursor_right(&mut self) {
+        let cursor_moved_right = self.partition_key_index.saturating_add(1);
+        self.partition_key_index = self.clamp_cursor(cursor_moved_right, &self.partition_key_value);
+    }
+
+    fn clamp_cursor(&self, new_cursor_pos: usize, input: &str) -> usize {
+        new_cursor_pos.clamp(0, input.chars().count())
     }
 
     fn delete_char(&mut self) {
@@ -223,6 +270,287 @@ impl DataBox {
             self.filter_input = before_char_to_delete.chain(after_char_to_delete).collect();
             self.move_cursor_left();
         }
+    }
+
+    fn delete_char_sort_key(&mut self) {
+        let is_not_cursor_leftmost = self.sort_key_index != 0;
+        if is_not_cursor_leftmost {
+            // Method "remove" is not used on the saved text for deleting the selected char.
+            // Reason: Using remove on String works on bytes instead of the chars.
+            // Using remove would require special care because of char boundaries.
+
+            let current_index = self.sort_key_index;
+            let from_left_to_current_index = current_index - 1;
+
+            // Getting all characters before the selected character.
+            let before_char_to_delete =
+                self.sort_key_value.chars().take(from_left_to_current_index);
+            // Getting all characters after selected character.
+            let after_char_to_delete = self.sort_key_value.chars().skip(current_index);
+
+            // Put all characters together except the selected one.
+            // By leaving the selected one out, it is forgotten and therefore deleted.
+            self.sort_key_value = before_char_to_delete.chain(after_char_to_delete).collect();
+            self.move_sort_key_cursor_left();
+        }
+    }
+
+    fn delete_char_partition_key(&mut self) {
+        let is_not_cursor_leftmost = self.partition_key_index != 0;
+        if is_not_cursor_leftmost {
+            // Method "remove" is not used on the saved text for deleting the selected char.
+            // Reason: Using remove on String works on bytes instead of the chars.
+            // Using remove would require special care because of char boundaries.
+
+            let current_index = self.partition_key_index;
+            let from_left_to_current_index = current_index - 1;
+
+            // Getting all characters before the selected character.
+            let before_char_to_delete = self
+                .partition_key_value
+                .chars()
+                .take(from_left_to_current_index);
+            // Getting all characters after selected character.
+            let after_char_to_delete = self.partition_key_value.chars().skip(current_index);
+
+            // Put all characters together except the selected one.
+            // By leaving the selected one out, it is forgotten and therefore deleted.
+            self.partition_key_value = before_char_to_delete.chain(after_char_to_delete).collect();
+            self.move_partition_key_cursor_left();
+        }
+    }
+
+    fn toggle_query_input_focus(&mut self) {
+        if self.sort_key.is_some() && self.partition_key.is_some() {
+            match self.query_focus {
+                QueryFocus::SortKey => self.query_focus = QueryFocus::PartitionKey,
+                QueryFocus::PartitionKey => self.query_focus = QueryFocus::SortKey,
+            }
+        }
+    }
+
+    fn render_query_form(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+        let [_, y_middle, _] = Layout::vertical([
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+            Constraint::Percentage(30),
+        ])
+        .areas(area);
+
+        let [_, middle, _] = Layout::horizontal([
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+            Constraint::Percentage(30),
+        ])
+        .areas(y_middle);
+
+        frame.render_widget(Clear, middle);
+
+        if self.partition_key.is_none() && self.sort_key.is_none() {
+            let block = Block::new()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .style(Style::new().bg(Color::Black))
+                .padding(Padding::uniform(1))
+                .title("Query Table");
+
+            Paragraph::new("We don't have support for this Table Definition.")
+                .block(block)
+                .style(Style::new().bg(Color::Black).fg(INDIGO.c700))
+                .wrap(Wrap { trim: false })
+                .alignment(Alignment::Center)
+                .render(middle, frame.buffer_mut());
+
+            return Ok(());
+        }
+
+        if self.partition_key.is_some() && self.sort_key.is_some() {
+            let partition_key = self.partition_key.as_ref().unwrap();
+            let sort_key = self.sort_key.as_ref().unwrap();
+
+            let [top, middle_top, middle_bottom, bottom, rest, help] = Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(3),
+            ])
+            .areas(middle);
+
+            let top_block = Block::new()
+                .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .style(Style::new().bg(Color::Black))
+                .padding(Padding {
+                    top: 1,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .title("Query Table");
+
+            let middle_top_block = Block::new()
+                .borders(Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            let middle_bottom_block = Block::new()
+                .borders(Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            let bottom_block = Block::new()
+                .borders(Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            let rest_block = Block::new()
+                .borders(Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            let help_block = Block::new()
+                .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 1,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            Paragraph::new(format!("Partition Key ({}):", partition_key))
+                .block(top_block)
+                .style(Style::new().bg(Color::Black).fg(INDIGO.c700))
+                .render(top, frame.buffer_mut());
+
+            Paragraph::new(self.partition_key_value.clone())
+                .block(middle_top_block)
+                .style(Style::new().bg(Color::Black))
+                .render(middle_top, frame.buffer_mut());
+
+            Paragraph::new(format!("Sort Key ({}):", sort_key))
+                .block(middle_bottom_block)
+                .style(Style::new().bg(Color::Black).fg(INDIGO.c700))
+                .render(middle_bottom, frame.buffer_mut());
+
+            Paragraph::new(self.sort_key_value.clone())
+                .block(bottom_block)
+                .style(Style::new().bg(Color::Black))
+                .render(bottom, frame.buffer_mut());
+
+            Paragraph::new("")
+                .block(rest_block)
+                .style(Style::new().bg(Color::Black))
+                .render(rest, frame.buffer_mut());
+
+            Paragraph::new("<enter> to submit - <esc> to cancel - <tab> to switch fields")
+                .block(help_block)
+                .alignment(Alignment::Center)
+                .style(Style::new().bg(Color::Black).fg(INDIGO.c700))
+                .render(help, frame.buffer_mut());
+
+            match self.query_focus {
+                QueryFocus::PartitionKey => {
+                    frame.set_cursor_position(Position::new(
+                        middle_top.x + self.partition_key_index as u16 + 2,
+                        middle_top.y,
+                    ));
+                }
+                QueryFocus::SortKey => {
+                    frame.set_cursor_position(Position::new(
+                        bottom.x + self.sort_key_index as u16 + 2,
+                        bottom.y,
+                    ));
+                }
+            }
+
+            return Ok(());
+        }
+
+        if self.partition_key.is_some() {
+            let partition_key = self.partition_key.as_ref().unwrap();
+
+            let [top, bottom] =
+                Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(middle);
+
+            let top_block = Block::new()
+                .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .style(Style::new().bg(Color::Black))
+                .padding(Padding {
+                    top: 1,
+                    left: 1,
+                    right: 1,
+                    bottom: 0,
+                })
+                .title("Query Table");
+
+            let bottom_block = Block::new()
+                .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(EMERALD.c300))
+                .padding(Padding {
+                    top: 0,
+                    left: 1,
+                    right: 1,
+                    bottom: 1,
+                })
+                .style(Style::new().bg(Color::Black));
+
+            Paragraph::new(format!("Partition Key ({}):", partition_key))
+                .block(top_block)
+                .style(Style::new().bg(Color::Black).fg(INDIGO.c700))
+                .render(top, frame.buffer_mut());
+
+            Paragraph::new(self.partition_key_value.clone())
+                .block(bottom_block)
+                .style(Style::new().bg(Color::Black))
+                .render(bottom, frame.buffer_mut());
+
+            frame.set_cursor_position(Position::new(
+                bottom.x + self.partition_key_index as u16 + 2,
+                bottom.y,
+            ));
+
+            return Ok(());
+        }
+
+        Ok(())
     }
 }
 
@@ -254,6 +582,11 @@ impl Component for DataBox {
             Action::TransmitSelectedTable(table) => {
                 self.set_title(&table);
                 self.collection_name = table.clone();
+
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::GetTableDescription(table.clone()))?;
             }
             Action::TransmitTableData(data, has_more) => {
                 self.records = data;
@@ -334,7 +667,7 @@ impl Component for DataBox {
                     .send(Action::StopLoading)?;
             }
             Action::FetchTableData(_) => {
-                self.records.clear();
+                self.records = Vec::new();
             }
             Action::ApproximateTableDataCount(count) => {
                 self.aprox_count = count;
@@ -345,11 +678,22 @@ impl Component for DataBox {
             Action::FilterTableData => self.mode = Mode::Filtering,
             Action::ExitFilterTableData => {
                 self.mode = Mode::View;
-                self.filter_input.clear();
+                self.filter_input = String::new();
                 self.character_index = 0;
                 self.apply_filter();
             }
-            Action::ExitQueryTableData => self.mode = Mode::View,
+            Action::ExitQueryTableData => {
+                self.filter_input = String::new();
+                self.partition_key_value = String::new();
+                self.sort_key_value = String::new();
+                self.character_index = 0;
+                self.sort_key_index = 0;
+                self.partition_key_index = 0;
+
+                self.query_focus = QueryFocus::PartitionKey;
+
+                self.mode = Mode::View
+            }
             Action::NewFilterDataCharacter(c) => {
                 if self.active {
                     self.enter_char(c);
@@ -367,11 +711,56 @@ impl Component for DataBox {
                 self.mode = Mode::View;
             }
             Action::ClearTableDataFilter => {
-                self.filter_input.clear();
+                self.filter_input = String::new();
+                self.partition_key_value = String::new();
+                self.sort_key_value = String::new();
                 self.character_index = 0;
+                self.sort_key_index = 0;
+                self.partition_key_index = 0;
                 self.apply_filter();
             }
             Action::QueryTableData => self.mode = Mode::Querying,
+            Action::TransmitTableDescription(description) => {
+                let (partition_key, sort_key) = description;
+                self.partition_key = partition_key;
+                self.sort_key = sort_key;
+            }
+            Action::NewQueryDataCharacter(c) => match self.query_focus {
+                QueryFocus::PartitionKey => {
+                    self.enter_partition_key_char(c);
+                }
+                QueryFocus::SortKey => {
+                    self.enter_sort_key_char(c);
+                }
+            },
+            Action::DeleteQueryDataCharacter => {
+                if self.active {
+                    match self.query_focus {
+                        QueryFocus::PartitionKey => {
+                            self.delete_char_partition_key();
+                        }
+                        QueryFocus::SortKey => {
+                            self.delete_char_sort_key();
+                        }
+                    }
+                }
+            }
+            Action::ToggleQueryInputFocus => {
+                self.toggle_query_input_focus();
+            }
+            Action::SubmitQueryDataText => {
+                let command_tx = self.command_tx.as_ref().unwrap();
+                if !self.partition_key_value.is_empty() {
+                    command_tx.send(Action::StartLoading("Querying Data".to_string()))?;
+                    command_tx.send(Action::GetTableQueryDataByPk(
+                        self.collection_name.clone(),
+                        self.partition_key.as_ref().unwrap().clone(),
+                        self.partition_key_value.clone(),
+                    ))?;
+                }
+
+                self.mode = Mode::View;
+            }
             _ => {}
         }
         Ok(None)
@@ -447,47 +836,7 @@ impl Component for DataBox {
                     .render(bottom_right, frame.buffer_mut());
             }
             Mode::Querying => {
-                let [_, y_middle, _] = Layout::vertical([
-                    Constraint::Percentage(30),
-                    Constraint::Percentage(40),
-                    Constraint::Percentage(30),
-                ])
-                .areas(area);
-
-                let [_, middle, _] = Layout::horizontal([
-                    Constraint::Percentage(30),
-                    Constraint::Percentage(40),
-                    Constraint::Percentage(30),
-                ])
-                .areas(y_middle);
-
-                let [top, bottom] =
-                    Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-                        .areas(middle);
-
-                let top_block = Block::new()
-                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(EMERALD.c300))
-                    .style(Style::new().bg(Color::Black))
-                    .title("Query Table");
-
-                let bottom_block = Block::new()
-                    .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(EMERALD.c300))
-                    .style(Style::new().bg(Color::Black));
-
-                frame.render_widget(Clear, middle);
-
-                Paragraph::new("Top")
-                    .block(top_block)
-                    .style(Style::new().bg(Color::Black))
-                    .render(top, frame.buffer_mut());
-                Paragraph::new("Bottom")
-                    .block(bottom_block)
-                    .style(Style::new().bg(Color::Black))
-                    .render(bottom, frame.buffer_mut());
+                let _ = self.render_query_form(frame, area);
             }
             Mode::Filtering => {
                 let [search_left, search_right] =

@@ -127,6 +127,15 @@ impl App {
                         self.action_tx
                             .send(Action::ApproximateTableDataCount(count))?;
                     }
+                    FetchResponse::TableDescription(description) => self
+                        .action_tx
+                        .send(Action::TransmitTableDescription(description))?,
+                    FetchResponse::QueryResult(data) => {
+                        self.last_evaluated_key = None;
+                        self.action_tx
+                            .send(Action::TransmitTableData(data, false))?;
+                        self.action_tx.send(Action::Render)?;
+                    }
                 }
             }
 
@@ -172,6 +181,20 @@ impl App {
         let action_tx = self.action_tx.clone();
 
         match self.mode {
+            Mode::QueryData => {
+                let Some(keymap) = self.config.keybindings.get(&self.mode) else {
+                    return Ok(());
+                };
+
+                if let Some(action) = keymap.get(&vec![key]) {
+                    info!("Got action: {action:?}");
+                    action_tx.send(action.clone())?;
+                } else if let Some(character) = self.get_char_from_key_event(key) {
+                    action_tx.send(Action::NewQueryDataCharacter(character))?;
+                }
+
+                Ok(())
+            }
             Mode::FilterData => {
                 let Some(keymap) = self.config.keybindings.get(&self.mode) else {
                     return Ok(());
@@ -271,6 +294,17 @@ impl App {
                     self.fetch_tx.try_send(FetchRequest::NextBatchTableData(
                         collection_name.to_string(),
                         self.last_evaluated_key.clone(),
+                    ))?;
+                }
+                Action::GetTableDescription(ref table_name) => {
+                    self.fetch_tx
+                        .try_send(FetchRequest::DescribeTable(table_name.to_string()))?;
+                }
+                Action::GetTableQueryDataByPk(ref table_name, ref pk, ref pk_value) => {
+                    self.fetch_tx.try_send(FetchRequest::QueryTableByPk(
+                        table_name.to_string(),
+                        pk.to_string(),
+                        pk_value.to_string(),
                     ))?;
                 }
                 _ => {}

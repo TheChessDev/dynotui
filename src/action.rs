@@ -46,6 +46,13 @@ pub enum Action {
     SubmitFilterDataText,
     NewFilterDataCharacter(char),
     ClearTableDataFilter,
+    TransmitTableDescription((Option<String>, Option<String>)),
+    GetTableDescription(String),
+    DeleteQueryDataCharacter,
+    NewQueryDataCharacter(char),
+    SubmitQueryDataText,
+    ToggleQueryInputFocus,
+    GetTableQueryDataByPk(String, String, String),
 
     FilteringTables,
     SelectingRegion,
