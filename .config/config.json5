@@ -50,8 +50,9 @@
             "<Ctrl-c>": "Quit", // Yet another way to quit
             "<Ctrl-z>": "Suspend", // Suspend the application
             "<esc>": "ExitViewTableDataRowMode",
-            "<j>": "ViewTableDataRowScrollNext",
-            "<k>": "ViewTableDataRowScrollPrev",
+            "<j>": "ViewTableDataRowNavigateDown",
+            "<k>": "ViewTableDataRowNavigateUp",
+            "<space>": "ViewTableDataRowToggleNode",
             "<Ctrl-d>": "ViewTableDataRowScrollDown",
             "<Ctrl-u>": "ViewTableDataRowScrollUp",
             "<h>": "ViewTableDataRowScrollLeft",

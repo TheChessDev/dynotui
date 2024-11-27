@@ -1,5 +1,4 @@
 use color_eyre::Result;
-use colored_json::Paint;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use ratatui::prelude::*;

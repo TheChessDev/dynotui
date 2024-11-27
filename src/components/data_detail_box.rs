@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use clipboard::{ClipboardContext, ClipboardProvider};
 use color_eyre::Result;
 use ratatui::{
@@ -11,133 +13,197 @@ use ratatui::{
     },
     Frame,
 };
-use serde_json::{Error, Value};
+use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::info;
 
 use crate::{action::Action, config::Config};
 
 use super::Component;
 
-#[derive(Default)]
+#[derive(Clone, Debug)]
+struct TreeNode {
+    key: String,
+    value: Value,
+    depth: usize,
+    expanded: bool,
+    path: Vec<String>,
+}
+
 pub struct DataDetailBox {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     active: bool,
     title: String,
     row: String,
+    tree: Vec<TreeNode>,
     vertical_scroll: usize,
     horizontal_scroll: usize,
     vertical_scroll_state: ScrollbarState,
     horizontal_scroll_state: ScrollbarState,
+    selected_index: usize,
+    expanded_states: HashMap<Vec<String>, bool>,
 }
 
 impl DataDetailBox {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            command_tx: None,
+            config: Config::default(),
+            active: false,
+            title: "JSON Viewer".to_string(),
+            row: "".to_string(),
+            tree: vec![],
+            vertical_scroll: 0,
+            horizontal_scroll: 0,
+            horizontal_scroll_state: ScrollbarState::default(),
+            vertical_scroll_state: ScrollbarState::default(),
+            selected_index: 0,
+            expanded_states: HashMap::new(),
+        }
     }
 
-    fn pretty_print_row(&self) -> Result<Vec<Line>, Error> {
-        let parsed_json: Value = serde_json::from_str(&self.row)?;
-
-        let lines = self.json_to_lines(&parsed_json, 0);
-
-        Ok(lines)
-    }
-
-    fn json_to_lines(&self, json: &Value, indent: usize) -> Vec<Line> {
-        let mut lines = vec![];
+    fn json_to_tree(&mut self, json: &Value, depth: usize, path: Vec<String>) -> Vec<TreeNode> {
+        let mut nodes = Vec::new();
 
         match json {
             Value::Object(map) => {
-                // Opening brace for the object with proper indentation
-                lines.push(Line::from(Span::styled(
-                    " ".repeat(indent) + "{",
-                    Style::default().fg(Color::Cyan),
-                )));
+                for (key, value) in map {
+                    let new_path = [path.clone(), vec![key.clone()]].concat();
+                    let expanded = *self.expanded_states.get(&new_path).unwrap_or(&false);
 
-                for (key, value) in map.iter() {
-                    // Key with indentation
-                    let mut line = vec![
-                        Span::raw(" ".repeat(indent + 2)),
-                        Span::styled(format!(r#""{}""#, key), Style::default().fg(Color::Yellow)),
-                        Span::raw(": "),
-                    ];
+                    nodes.push(TreeNode {
+                        key: key.clone(),
+                        value: value.clone(),
+                        depth,
+                        expanded,
+                        path: new_path.clone(),
+                    });
 
-                    // Add value spans with appropriate indentation for each line
-                    if value.is_object() || value.is_array() {
-                        // For nested objects/arrays, start a new line for each level
-                        lines.push(Line::from(line)); // Push the key line
-                        let nested_lines = self.json_to_lines(value, indent + 2);
-                        for nested_line in nested_lines {
-                            lines.push(nested_line); // Add each nested line directly
-                        }
-                    } else {
-                        line.extend(self.json_value_to_spans(value, indent + 2));
-                        lines.push(Line::from(line));
+                    if expanded {
+                        nodes.extend(self.json_to_tree(value, depth + 1, new_path));
                     }
                 }
-
-                // Closing brace for the object with indentation
-                lines.push(Line::from(Span::styled(
-                    " ".repeat(indent) + "}",
-                    Style::default().fg(Color::Cyan),
-                )));
             }
-            Value::Array(array) => {
-                // Opening bracket for the array with proper indentation
-                lines.push(Line::from(Span::styled(
-                    " ".repeat(indent) + "[",
-                    Style::default().fg(Color::Cyan),
-                )));
+            Value::Array(arr) => {
+                for (index, value) in arr.iter().enumerate() {
+                    let new_path = [path.clone(), vec![index.to_string()]].concat();
+                    let expanded = *self.expanded_states.get(&new_path).unwrap_or(&false);
 
-                for value in array {
-                    // Add each array item with indentation
-                    if value.is_object() || value.is_array() {
-                        let nested_lines = self.json_to_lines(value, indent + 2);
-                        for nested_line in nested_lines {
-                            lines.push(Line::from(vec![
-                                Span::raw(" ".repeat(indent + 2)),
-                                Span::raw(""),
-                            ]));
-                            lines.push(nested_line);
-                        }
-                    } else {
-                        lines.push(Line::from(vec![
-                            Span::raw(" ".repeat(indent + 2)),
-                            self.json_value_to_spans(value, indent + 2)[0].clone(),
-                        ]));
+                    nodes.push(TreeNode {
+                        key: index.to_string(),
+                        value: value.clone(),
+                        depth,
+                        expanded,
+                        path: new_path.clone(),
+                    });
+
+                    if expanded {
+                        nodes.extend(self.json_to_tree(value, depth + 1, new_path));
                     }
                 }
-
-                // Closing bracket for the array with indentation
-                lines.push(Line::from(Span::styled(
-                    " ".repeat(indent) + "]",
-                    Style::default().fg(Color::Cyan),
-                )));
             }
-            _ => lines.push(Line::from(Span::raw(json.to_string()))),
+            _ => {
+                nodes.push(TreeNode {
+                    key: "".to_string(),
+                    value: json.clone(),
+                    depth,
+                    expanded: false,
+                    path,
+                });
+            }
+        }
+
+        nodes
+    }
+
+    fn toggle_node(&mut self, path: &[String]) {
+        if let Some(node) = self.tree.iter_mut().find(|node| node.path == path) {
+            node.expanded = !node.expanded;
+            self.expanded_states.insert(path.to_vec(), node.expanded); // Update expanded state
+
+            // Automatically adjust scroll to center the toggled node
+            let index = self
+                .tree
+                .iter()
+                .position(|n| n.path == path)
+                .unwrap_or(self.selected_index);
+            self.center_scroll_on(index);
+        }
+
+        // Rebuild the tree to reflect the updated expanded state
+        if let Ok(json) = self.parse_json() {
+            self.tree = self.json_to_tree(&json, 0, vec![]);
+        }
+    }
+
+    fn center_scroll_on(&mut self, index: usize) {
+        let visible_area = 10;
+
+        match index {
+            i if i > self.vertical_scroll + visible_area / 2 => {
+                // Scroll down to center
+                self.vertical_scroll = i.saturating_sub(visible_area / 2);
+            }
+            i if i < self.vertical_scroll + visible_area / 2 => {
+                // Scroll up to center
+                self.vertical_scroll = i.saturating_sub(visible_area / 2);
+            }
+            _ => {
+                // Index is already centered; no need to adjust
+            }
+        }
+    }
+
+    fn get_visible_nodes(&self) -> Vec<&TreeNode> {
+        let mut visible_nodes = Vec::new();
+
+        for node in &self.tree {
+            visible_nodes.push(node);
+
+            // If the node is expanded, ensure its children are included
+            if !node.expanded {
+                // Skip children by breaking out of the loop for non-expanded nodes
+                continue;
+            }
+        }
+
+        visible_nodes
+    }
+
+    fn render_tree(&mut self) -> Vec<Line> {
+        let mut lines = Vec::new();
+
+        let selected_index = self.selected_index;
+
+        for (index, node) in self.get_visible_nodes().iter().enumerate() {
+            let indent = " ".repeat(node.depth * 2);
+            let line_content = if matches!(node.value, Value::Object(_) | Value::Array(_)) {
+                format!(
+                    "{}{} {}",
+                    indent,
+                    if node.expanded { "▼" } else { "▶" },
+                    node.key
+                )
+            } else {
+                format!("{}{}: {}", indent, node.key, node.value)
+            };
+
+            // Highlight the selected node
+            let style = if index == selected_index {
+                Style::default().fg(Color::White).bg(Color::Blue)
+            } else {
+                Style::default()
+            };
+
+            lines.push(Line::from(Span::styled(line_content, style)));
         }
 
         lines
     }
 
-    fn json_value_to_spans(&self, value: &Value, _indent: usize) -> Vec<Span> {
-        match value {
-            Value::String(s) => vec![Span::styled(
-                format!(r#""{}""#, s),
-                Style::default().fg(Color::Green),
-            )],
-            Value::Number(n) => vec![Span::styled(
-                n.to_string(),
-                Style::default().fg(Color::Magenta),
-            )],
-            Value::Bool(b) => vec![Span::styled(b.to_string(), Style::default().fg(Color::Red))],
-            Value::Null => vec![Span::styled("null", Style::default().fg(Color::Gray))],
-            Value::Object(_) | Value::Array(_) => {
-                // For nested objects/arrays, we defer to `json_to_lines` to handle them properly.
-                vec![]
-            }
-        }
+    fn parse_json(&self) -> Result<Value, serde_json::Error> {
+        serde_json::from_str(&self.row)
     }
 
     fn copy_selected_row_to_clipboard(&self) {
@@ -177,32 +243,18 @@ impl Component for DataDetailBox {
             | Action::FilteringTables
             | Action::SelectTableMode
             | Action::SelectDataMode => self.active = false,
-            Action::TransmitSelectedTableDataRow(row) => self.row = row,
-            Action::ExitViewTableDataRowMode => {
-                self.command_tx
-                    .as_ref()
-                    .unwrap()
-                    .send(Action::SelectDataMode)?;
-            }
-            Action::ViewTableDataRowScrollPrev => {
-                self.vertical_scroll = self.vertical_scroll.saturating_sub(1);
-                self.vertical_scroll_state =
-                    self.vertical_scroll_state.position(self.vertical_scroll);
-            }
-            Action::ViewTableDataRowScrollNext => {
-                self.vertical_scroll = self.vertical_scroll.saturating_add(1);
-                self.vertical_scroll_state =
-                    self.vertical_scroll_state.position(self.vertical_scroll);
-            }
+
             Action::ViewTableDataRowScrollUp => {
                 self.vertical_scroll = self.vertical_scroll.saturating_sub(10);
                 self.vertical_scroll_state =
                     self.vertical_scroll_state.position(self.vertical_scroll);
+                self.selected_index = self.vertical_scroll;
             }
             Action::ViewTableDataRowScrollDown => {
                 self.vertical_scroll = self.vertical_scroll.saturating_add(10);
                 self.vertical_scroll_state =
                     self.vertical_scroll_state.position(self.vertical_scroll);
+                self.selected_index = self.vertical_scroll;
             }
             Action::ViewTableDataRowScrollLeft => {
                 self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
@@ -215,6 +267,33 @@ impl Component for DataDetailBox {
                 self.horizontal_scroll_state = self
                     .horizontal_scroll_state
                     .position(self.horizontal_scroll);
+            }
+            Action::TransmitSelectedTableDataRow(row) => {
+                self.row = row.clone();
+                if let Ok(json) = self.parse_json() {
+                    self.tree = self.json_to_tree(&json, 0, vec![]);
+                }
+            }
+            Action::ViewTableDataRowToggleNode => {
+                let index = self.selected_index;
+                if let Some(node) = self.get_visible_nodes().get(index) {
+                    let path = node.path.clone();
+                    self.toggle_node(&path);
+                    self.command_tx.as_ref().unwrap().send(Action::Render)?;
+                }
+            }
+            Action::ViewTableDataRowNavigateUp => {
+                self.selected_index = self.selected_index.saturating_sub(1);
+            }
+            Action::ViewTableDataRowNavigateDown => {
+                self.selected_index =
+                    (self.selected_index + 1).min(self.get_visible_nodes().len() - 1);
+            }
+            Action::ExitViewTableDataRowMode => {
+                self.command_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Action::SelectDataMode)?;
             }
             Action::ViewTableDataRowCopyToClipboard => {
                 self.copy_selected_row_to_clipboard();
@@ -250,18 +329,20 @@ impl Component for DataDetailBox {
             .style(Style::new().bg(Color::Black))
             .title(self.title.clone());
 
-        let lines: Vec<Line> = self.pretty_print_row().unwrap_or_default();
+        let vertical_scroll = self.vertical_scroll;
+        let horizontal_scroll = self.horizontal_scroll;
+
+        let lines = self.render_tree();
 
         let longest_line_width = lines.iter().map(|line| line.width()).max().unwrap_or(0);
         let total_lines = lines.len();
 
-        let p = Paragraph::new(lines)
+        let paragraph = Paragraph::new(lines)
             .block(block)
-            .style(Style::new().bg(Color::Black))
-            .scroll((self.vertical_scroll as u16, self.horizontal_scroll as u16));
+            .scroll((vertical_scroll as u16, horizontal_scroll as u16));
 
         frame.render_widget(Clear, middle);
-        frame.render_widget(p, middle);
+        frame.render_widget(paragraph, middle);
 
         self.vertical_scroll_state = self.vertical_scroll_state.content_length(total_lines);
 

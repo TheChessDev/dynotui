@@ -75,7 +75,8 @@ pub enum Action {
     ViewTableDataRowScrollRight,
     ViewTableDataRowScrollDown,
     ViewTableDataRowScrollUp,
-    ViewTableDataRowScrollNext,
-    ViewTableDataRowScrollPrev,
+    ViewTableDataRowNavigateDown,
+    ViewTableDataRowNavigateUp,
     ViewTableDataRowCopyToClipboard,
+    ViewTableDataRowToggleNode,
 }
